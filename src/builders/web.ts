@@ -114,25 +114,16 @@ function formatDirective(key: string, value: string): string {
 	return `// @${key}${" ".repeat(spaces)}${value}`;
 }
 
-function buildTMHeader(metadata: Config["_metadata"], config: Config): string {
+function buildTMHeader(config: Config): string {
 	const us: TMUserScript = config.web?.userscript ?? {};
 
-	// Standard fields: userscript overrides metadata which overrides package.json
+	// Standard fields: userscript overrides package.json
 	const icon = (us.icon ?? config.web?.icon ?? "") as string;
-	const name = (us.name ??
-		metadata?.name ??
-		config.addonName ??
-		"Addon") as string;
+	const name = (us.name ?? config.addonName ?? "Addon") as string;
 	const namespace = (us.namespace ?? "nmtools") as string;
-	const version = (us.version ??
-		metadata?.version ??
-		config.version ??
-		"1.0.0") as string;
-	const description = (us.description ??
-		metadata?.description ??
-		config.description ??
-		"") as string;
-	const authorValue = us.author ?? metadata?.author ?? config.author ?? "";
+	const version = (us.version ?? config.version ?? "1.0.0") as string;
+	const description = (us.description ?? config.description ?? "") as string;
+	const authorValue = us.author ?? config.author ?? "";
 	const author = Array.isArray(authorValue)
 		? authorValue.join(", ")
 		: authorValue;
@@ -190,7 +181,6 @@ function buildTMHeader(metadata: Config["_metadata"], config: Config): string {
 async function buildWebOnefile(config: Config): Promise<string> {
 	const cwd = config._cwd;
 	const srcDir = config._srcDir;
-	const metadata = config._metadata;
 	const index = createSourceIndex(
 		srcDir,
 		parseBuildIgnore(config._buildIgnore),
@@ -219,7 +209,7 @@ async function buildWebOnefile(config: Config): Promise<string> {
 	});
 	const cssBlock = cssChunks.map(cssToJS).join("");
 
-	const header = buildTMHeader(metadata, config);
+	const header = buildTMHeader(config);
 	const body = `${cssBlock}${jsBlock}`.trim();
 	const output = header + body + "\n";
 

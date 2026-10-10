@@ -18,7 +18,7 @@ export interface BuildOptions {
 	outDir: string;
 	silent?: boolean;
 	copyLicense?: boolean;
-	copyMetadata?: boolean;
+	copyPackage?: boolean;
 	isDev?: boolean;
 }
 
@@ -27,7 +27,6 @@ export async function buildToDir(
 	opts: BuildOptions,
 ): Promise<void> {
 	const srcDir = config._srcDir;
-	const metadata = config._metadata;
 	const webReplacements = config.web?.replaceLink ?? [];
 	const ignoreRules = parseBuildIgnore(config._buildIgnore);
 	const silent = opts.silent ?? false;
@@ -72,15 +71,11 @@ export async function buildToDir(
 			logWarn("No icon image found in assets/branding/ or src/");
 	}
 
-	// metadata.json
-	if (opts.copyMetadata) {
-		const metaSrc = path.join(srcDir, "metadata.json");
-		if (index.shared.includes(metaSrc)) {
-			fs.copyFileSync(metaSrc, outputs.claim("metadata.json", metaSrc));
-			logFile("write", "metadata.json");
-		} else {
-			logWarn("metadata.json not found in src/");
-		}
+	// Theme manifest
+	if (opts.copyPackage) {
+		const packageSrc = path.join(config._cwd, "package.json");
+		fs.copyFileSync(packageSrc, outputs.claim("package.json", packageSrc));
+		logFile("copy", "package.json");
 	}
 
 	// LICENSE
@@ -107,7 +102,6 @@ export async function buildToDir(
 		srcDir,
 		targetFolder: opts.targetFolder,
 		outDir: opts.outDir,
-		metadata,
 		replacements,
 		logFile,
 		isDev,

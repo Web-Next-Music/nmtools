@@ -32,7 +32,7 @@ export async function buildNextMusic(config: Config): Promise<void> {
 	await buildToDir(config, {
 		targetFolder: TARGET_METADATA.nextmusic.sourceFolder,
 		outDir,
-		copyMetadata: true,
+		copyPackage: true,
 		copyLicense: true,
 	});
 
@@ -66,7 +66,7 @@ export async function buildNextMusicDev(config: Config): Promise<void> {
 		outDir,
 		silent: true,
 		isDev: true,
-		copyMetadata: true,
+		copyPackage: true,
 		copyLicense: true,
 	});
 }

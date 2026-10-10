@@ -4,15 +4,6 @@ import * as log from "./logger.js";
 import { syncTypes } from "./types-sync.js";
 import config from "../package.json" with { type: "json" };
 
-const DEFAULT_METADATA = {
-	name: "addon",
-	author: ["developer"],
-	description: "Hello, World!",
-	type: "theme",
-	version: "1.0.0",
-	css: "style.css",
-	script: "script.js",
-};
 
 const DEFAULT_PKG = {
 	name: "my-addon",
@@ -77,10 +68,6 @@ export function init(cwd = process.cwd(), force = false): void {
 		log.file("write", `${dir}/`);
 	}
 
-	writeIfMissing(
-		"src/metadata.json",
-		JSON.stringify(DEFAULT_METADATA, null, 2),
-	);
 	writeIfMissing("src/style.css", "/* shared styles */\n");
 
 	// IDE support; builds use Bun.build rather than tsc.

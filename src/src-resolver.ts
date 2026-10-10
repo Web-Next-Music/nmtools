@@ -5,7 +5,7 @@ export { safeOutputPath, OutputRegistry } from "./paths.js";
 import { TARGET_METADATA } from "./targets.js";
 import { shouldIgnore } from "./ignore.js";
 import { compileSources } from "./compile-sources.js";
-import type { Metadata, Replacement } from "./types.js";
+import type { Replacement } from "./types.js";
 
 export const TARGET_FOLDERS = new Set<string>(
 	Object.values(TARGET_METADATA)
@@ -88,16 +88,6 @@ export function copyAssetsToOut(
 	}
 }
 
-// Bundle name resolution
-export function getBundleNames(metadata: Metadata | null): {
-	js: string;
-	css: string;
-} {
-	return {
-		js: metadata?.script ?? "script.js",
-		css: metadata?.css ?? "style.css",
-	};
-}
 
 // Bundler
 export interface BundleToDirOptions {
@@ -105,7 +95,8 @@ export interface BundleToDirOptions {
 	srcDir: string;
 	targetFolder: string;
 	outDir: string;
-	metadata: Metadata | null;
+	jsName?: string;
+	cssName?: string;
 	replacements: Replacement[];
 	logFile: (action: string, name: string) => void;
 	isDev?: boolean;
@@ -117,13 +108,13 @@ export async function bundleToDir({
 	srcDir,
 	targetFolder,
 	outDir,
-	metadata,
+	jsName = "script.js",
+	cssName = "style.css",
 	replacements,
 	logFile,
 	isDev = false,
 	outputs = new OutputRegistry(outDir),
-}: BundleToDirOptions): Promise<void> {
-	const { js: jsName, css: cssName } = getBundleNames(metadata);
+	}: BundleToDirOptions): Promise<void> {
 	const { js, hasJsOutput, cssChunks, copyFiles } = await compileSources({
 		files: allFiles,
 		srcDir,

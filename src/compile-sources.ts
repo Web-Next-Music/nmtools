@@ -47,8 +47,7 @@ export async function compileSources({
 	for (const file of files) {
 		const ext = path.extname(file).toLowerCase();
 		const relative = path.relative(srcDir, file);
-		if (path.basename(file) === "metadata.json" || isTypeDeclaration(file))
-			continue;
+		if (isTypeDeclaration(file)) continue;
 		if (
 			path.dirname(path.resolve(file)) === path.resolve(srcDir) &&
 			/^(icon|banner)$/i.test(path.basename(file, ext)) &&

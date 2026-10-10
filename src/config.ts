@@ -5,7 +5,7 @@ import * as v from "valibot";
 import { loadEnvFile } from "./env.js";
 import { addonFolderName, resolveArtifactName } from "./utils.js";
 import * as log from "./logger.js";
-import type { Config, Metadata, ProjectConfig } from "./types.js";
+import type { Config, ProjectConfig } from "./types.js";
 import { isTarget, TARGETS, TARGET_METADATA, type Target } from "./targets.js";
 
 const _require = createRequire(import.meta.url);
@@ -103,46 +103,9 @@ function resolveSourceDirectory(cwd: string, build: UnknownObject): string {
 	return srcDir;
 }
 
-function metadataSchema() {
-	return v.looseObject(
-		{
-			name: v.optional(
-				nonEmptyStringSchema("addonName (or metadata.name)"),
-			),
-			version: v.optional(
-				nonEmptyStringSchema("version (or metadata.version)"),
-			),
-			description: v.optional(lineStringSchema("metadata.description")),
-			author: v.optional(
-				v.union(
-					[
-						lineStringSchema("metadata.author"),
-						v.array(lineStringSchema("metadata.author")),
-					],
-					"metadata.author must be a string or an array of strings",
-				),
-			),
-			type: v.optional(v.string("metadata.type must be a string")),
-			css: v.optional(safeRelativePathSchema("metadata.css")),
-			script: v.optional(safeRelativePathSchema("metadata.script")),
-		},
-		"metadata.json must be an object",
-	);
-}
-
-function resolveMetadata(srcDir: string, raw: UnknownObject) {
-	const metaPath = path.join(srcDir, "metadata.json");
-	const metadata = fs.existsSync(metaPath)
-		? parse(metadataSchema(), JSON.parse(fs.readFileSync(metaPath, "utf8")))
-		: null;
-	const addonName = parse(
-		nonEmptyStringSchema("addonName (or metadata.name)"),
-		metadata?.name ?? raw.addonName,
-	);
-	const version = parse(
-		nonEmptyStringSchema("version (or metadata.version)"),
-		metadata?.version ?? raw.version,
-	);
+function resolvePackage(raw: UnknownObject) {
+	const addonName = parse(nonEmptyStringSchema("addonName"), raw.addonName);
+	const version = parse(nonEmptyStringSchema("version"), raw.version);
 	addonFolderName(addonName, version);
 	if (raw.description !== undefined)
 		parse(
@@ -160,7 +123,7 @@ function resolveMetadata(srcDir: string, raw: UnknownObject) {
 			]),
 			raw.author,
 		);
-	return { addonName, version, metadata: metadata as Metadata | null };
+	return { addonName, version };
 }
 
 function validateUserscript(userscript: unknown): void {
@@ -280,7 +243,7 @@ export function loadConfig(cwd = process.cwd()): Config {
 	const build = parse(objectSchema("build"), raw.build);
 	const targets = resolveTargets(build);
 	const srcDir = resolveSourceDirectory(cwd, build);
-	const { addonName, version, metadata } = resolveMetadata(srcDir, raw);
+	const { addonName, version } = resolvePackage(raw);
 	validateTargetOptions(raw, { addonName, version });
 	const project = { ...raw, build } as ProjectConfig;
 	return {
@@ -292,7 +255,6 @@ export function loadConfig(cwd = process.cwd()): Config {
 		_env: loadEnvFile(cwd),
 		_version: (_require("../package.json") as { version: string }).version,
 		_srcDir: srcDir,
-		_metadata: metadata,
 		_buildIgnore: readBuildIgnore(cwd),
 	};
 }

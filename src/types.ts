@@ -1,15 +1,6 @@
 import type { Target } from "./targets.js";
 export type { Target } from "./targets.js";
 
-export interface Metadata {
-	name?: string;
-	version?: string;
-	description?: string;
-	author?: string | string[];
-	type?: string;
-	css?: string;
-	script?: string;
-}
 
 export interface Replacement {
 	from: string;
@@ -75,7 +66,6 @@ export interface Config extends ProjectConfig {
 	_cwd: string;
 	_version: string;
 	_srcDir: string;
-	_metadata: Metadata | null;
 	_buildIgnore: string;
 	_env: Record<string, string>;
 }
