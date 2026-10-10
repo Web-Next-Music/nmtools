@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { watch, type FSWatcher } from "chokidar";
 import * as log from "./logger.js";
 import { loadConfig } from "./config.js";
 import { buildDevTarget } from "./builder.js";
@@ -34,16 +35,17 @@ export async function runDev(cliTarget?: string): Promise<void> {
 	process.stdout.write(
 		`  target  ${displayName(target)}  •  ${config.addonName}\n\n`,
 	);
-	const watchers: fs.FSWatcher[] = [];
-	const configFiles = new Set(["package.json", ".env", ".buildignore"]);
+	let watcher: FSWatcher | undefined;
+	const configFiles = ["package.json", ".env", ".buildignore"];
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	let building = false;
 	let pending = false;
 	let stopped = false;
 
-	function closeWatchers(): void {
-		for (const watcher of watchers) watcher.close();
-		watchers.length = 0;
+	async function closeWatcher(): Promise<void> {
+		const current = watcher;
+		watcher = undefined;
+		await current?.close();
 	}
 
 	function requestBuild(): void {
@@ -56,64 +58,34 @@ export async function runDev(cliTarget?: string): Promise<void> {
 		}, 150);
 	}
 
-	function sourceChanged(filename: string | null): void {
-		if (filename) {
-			const parts = filename.replace(/\\/g, "/").split("/");
-			if (
-				parts.some((part) => part === "node_modules" || part === ".git")
-			)
-				return;
-			if (target === "nextmusic" && parts.includes("web")) return;
-		}
-		requestBuild();
-	}
-
-	function addWatcher(
-		dir: string,
-		recursive: boolean,
-		callback: (filename: string | null) => void,
-	): void {
-		const watcher = fs.watch(dir, { recursive }, (_event, filename) =>
-			callback(filename),
+	async function refreshWatcher(): Promise<void> {
+		await closeWatcher();
+		const srcDir = config._srcDir;
+		watcher = watch(
+			[
+				...configFiles.map((filename) => path.join(cwd, filename)),
+				srcDir,
+			],
+			{
+				ignoreInitial: true,
+				ignored: (watchedPath) => {
+					const relative = path.relative(srcDir, watchedPath);
+					if (relative.startsWith("..") || path.isAbsolute(relative))
+						return false;
+					const parts = relative.split(path.sep);
+					return (
+						parts.includes("node_modules") ||
+						parts.includes(".git") ||
+						(target === "nextmusic" && parts.includes("web"))
+					);
+				},
+			},
 		);
+		watcher.on("all", requestBuild);
 		watcher.on("error", (error) => {
-			log.error(`Watcher failed for ${dir}: ${error.message}`);
+			log.error(`Watcher failed: ${String(error)}`);
 			requestBuild();
 		});
-		watchers.push(watcher);
-	}
-
-	function fallback(dir: string): void {
-		addWatcher(dir, false, sourceChanged);
-		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-			if (
-				!entry.isDirectory() ||
-				entry.name === "node_modules" ||
-				entry.name === ".git"
-			)
-				continue;
-			if (target === "nextmusic" && entry.name === "web") continue;
-			fallback(path.join(dir, entry.name));
-		}
-	}
-
-	function refreshWatchers(): void {
-		closeWatchers();
-		addWatcher(cwd, false, (filename) => {
-			if (
-				!filename ||
-				configFiles.has(filename) ||
-				filename ===
-					path.relative(cwd, config._srcDir).split(path.sep)[0]
-			)
-				requestBuild();
-		});
-		if (!fs.existsSync(config._srcDir)) return;
-		try {
-			addWatcher(config._srcDir, true, sourceChanged);
-		} catch {
-			fallback(config._srcDir);
-		}
 	}
 
 	async function compile(): Promise<void> {
@@ -123,7 +95,7 @@ export async function runDev(cliTarget?: string): Promise<void> {
 				`Dev target "${target}" was removed from build.targets`,
 			);
 		config = next;
-		refreshWatchers();
+		await refreshWatcher();
 		process.stdout.write("  compiling...");
 		const start = Date.now();
 		try {
@@ -162,7 +134,7 @@ export async function runDev(cliTarget?: string): Promise<void> {
 	} catch (error) {
 		stopped = true;
 		if (timer) clearTimeout(timer);
-		closeWatchers();
+		await closeWatcher();
 		throw error;
 	} finally {
 		building = false;
@@ -173,11 +145,10 @@ export async function runDev(cliTarget?: string): Promise<void> {
 		function stop(): void {
 			stopped = true;
 			if (timer) clearTimeout(timer);
-			closeWatchers();
+			void closeWatcher().then(resolve);
 			process.removeListener("SIGINT", stop);
 			process.removeListener("SIGTERM", stop);
 			process.stdout.write("\n");
-			resolve();
 		}
 		process.on("SIGINT", stop);
 		process.on("SIGTERM", stop);

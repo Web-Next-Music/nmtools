@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import { lookup as lookupMimeType } from "mime-types";
 import * as log from "../logger.js";
 import { ensureDir, fileSize } from "../utils.js";
 import { resolveArtifactName, safeOutputPath } from "../paths.js";
@@ -12,23 +13,7 @@ import type { Config, Replacement, TMUserScript } from "../types.js";
 // Helpers
 
 function fileToDataUrl(filePath: string): string {
-	const ext = path.extname(filePath).toLowerCase();
-	const mimeMap: Record<string, string> = {
-		".png": "image/png",
-		".jpg": "image/jpeg",
-		".jpeg": "image/jpeg",
-		".gif": "image/gif",
-		".webp": "image/webp",
-		".svg": "image/svg+xml",
-		".avif": "image/avif",
-		".bmp": "image/bmp",
-		".ico": "image/x-icon",
-		".woff": "font/woff",
-		".woff2": "font/woff2",
-		".ttf": "font/ttf",
-		".otf": "font/otf",
-	};
-	const mime = mimeMap[ext] || "application/octet-stream";
+	const mime = lookupMimeType(filePath) || "application/octet-stream";
 	const data = fs.readFileSync(filePath).toString("base64");
 	return `data:${mime};base64,${data}`;
 }

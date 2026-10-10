@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { createRequire } from "module";
+import * as v from "valibot";
 import { loadEnvFile } from "./env.js";
 import { addonFolderName, resolveArtifactName } from "./utils.js";
 import * as log from "./logger.js";
@@ -9,77 +10,83 @@ import { isTarget, TARGETS, TARGET_METADATA, type Target } from "./targets.js";
 
 const _require = createRequire(import.meta.url);
 
-function requireObject(value: unknown, field: string): Record<string, unknown> {
-	if (!value || typeof value !== "object" || Array.isArray(value))
-		throw new Error(`${field} must be an object`);
-	return value as Record<string, unknown>;
-}
+type UnknownObject = Record<string, unknown>;
 
-function assertNonEmptyString(
-	value: unknown,
-	field: string,
-): asserts value is string {
-	if (
-		typeof value !== "string" ||
-		!value.trim() ||
-		/[\x00-\x1f\x7f]/.test(value)
-	)
-		throw new Error(
+const objectSchema = (field: string) =>
+	v.looseObject({}, `${field} must be an object`);
+
+const nonEmptyStringSchema = (field: string) =>
+	v.pipe(
+		v.string(
 			`${field} must be a non-empty string without control characters`,
-		);
+		),
+		v.check(
+			(value) => Boolean(value.trim()) && !/[\x00-\x1f\x7f]/.test(value),
+			`${field} must be a non-empty string without control characters`,
+		),
+	);
+
+const safeRelativePathSchema = (field: string) =>
+	v.pipe(
+		nonEmptyStringSchema(field),
+		v.check(
+			(value) =>
+				!path.isAbsolute(value) &&
+				!/[\\:]/.test(value) &&
+				!value
+					.split("/")
+					.some((part) => !part || part === ".." || part === "."),
+			`${field} must be a safe relative path`,
+		),
+	);
+
+const lineStringSchema = (field: string) =>
+	v.pipe(
+		v.string(`${field} must contain strings without line breaks`),
+		v.check(
+			(value) => !/[\r\n]/.test(value),
+			`${field} must contain strings without line breaks`,
+		),
+	);
+
+function parse<
+	TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
+>(schema: TSchema, value: unknown): v.InferOutput<TSchema> {
+	const result = v.safeParse(schema, value);
+	if (!result.success) throw new Error(result.issues[0].message);
+	return result.output;
 }
 
-function assertSafeRelativePath(
-	value: unknown,
-	field: string,
-): asserts value is string {
-	assertNonEmptyString(value, field);
-	if (
-		path.isAbsolute(value) ||
-		/[\\:]/.test(value) ||
-		value.split("/").some((part) => !part || part === ".." || part === ".")
-	)
-		throw new Error(`${field} must be a safe relative path`);
-}
-
-function readProject(cwd: string): Record<string, unknown> {
+function readProject(cwd: string): UnknownObject {
 	const pkgPath = path.join(cwd, "package.json");
 	if (!fs.existsSync(pkgPath))
 		throw new Error(`package.json not found in ${cwd}`);
-	const raw = requireObject(
+	return parse(
+		objectSchema("package.json"),
 		JSON.parse(fs.readFileSync(pkgPath, "utf8")),
-		"package.json",
 	);
-	return raw;
 }
 
-function resolveTargets(build: Record<string, unknown>): Target[] {
+function resolveTargets(build: UnknownObject): Target[] {
 	if (build.package !== undefined)
 		log.warn("build.package is deprecated; use build.targets instead");
-	const targets = build.targets ?? build.package ?? [];
-	if (
-		!Array.isArray(targets) ||
-		targets.some((target) => typeof target !== "string")
-	)
-		throw new Error("build.targets must be an array of target names");
+	const targets = parse(
+		v.array(v.string(), "build.targets must be an array of target names"),
+		build.targets ?? build.package ?? [],
+	);
 	const normalised = [
-		...new Set(targets.map((target: string) => target.toLowerCase())),
+		...new Set(targets.map((target) => target.toLowerCase())),
 	];
 	for (const target of normalised)
 		if (!isTarget(target))
 			throw new Error(
 				`Unknown target: "${target}". Available: ${TARGETS.join(", ")}`,
 			);
-
 	return normalised as Target[];
 }
 
-function resolveSourceDirectory(
-	cwd: string,
-	build: Record<string, unknown>,
-): string {
-	const src = build.src ?? "src";
-	assertSafeRelativePath(src, "build.src");
+function resolveSourceDirectory(cwd: string, build: UnknownObject): string {
+	const src = parse(safeRelativePathSchema("build.src"), build.src ?? "src");
 	const srcDir = path.join(cwd, src);
 	if (!fs.existsSync(srcDir) || !fs.statSync(srcDir).isDirectory())
 		throw new Error(`Source directory not found: ${srcDir}`);
@@ -96,62 +103,69 @@ function resolveSourceDirectory(
 	return srcDir;
 }
 
-function resolveMetadata(srcDir: string, raw: Record<string, unknown>) {
+function metadataSchema() {
+	return v.looseObject(
+		{
+			name: v.optional(
+				nonEmptyStringSchema("addonName (or metadata.name)"),
+			),
+			version: v.optional(
+				nonEmptyStringSchema("version (or metadata.version)"),
+			),
+			description: v.optional(lineStringSchema("metadata.description")),
+			author: v.optional(
+				v.union(
+					[
+						lineStringSchema("metadata.author"),
+						v.array(lineStringSchema("metadata.author")),
+					],
+					"metadata.author must be a string or an array of strings",
+				),
+			),
+			type: v.optional(v.string("metadata.type must be a string")),
+			css: v.optional(safeRelativePathSchema("metadata.css")),
+			script: v.optional(safeRelativePathSchema("metadata.script")),
+		},
+		"metadata.json must be an object",
+	);
+}
+
+function resolveMetadata(srcDir: string, raw: UnknownObject) {
 	const metaPath = path.join(srcDir, "metadata.json");
 	const metadata = fs.existsSync(metaPath)
-		? requireObject(
-				JSON.parse(fs.readFileSync(metaPath, "utf8")),
-				"metadata.json",
-			)
+		? parse(metadataSchema(), JSON.parse(fs.readFileSync(metaPath, "utf8")))
 		: null;
-	const addonName = metadata?.name ?? raw.addonName;
-	const version = metadata?.version ?? raw.version;
-	assertNonEmptyString(addonName, "addonName (or metadata.name)");
-	assertNonEmptyString(version, "version (or metadata.version)");
+	const addonName = parse(
+		nonEmptyStringSchema("addonName (or metadata.name)"),
+		metadata?.name ?? raw.addonName,
+	);
+	const version = parse(
+		nonEmptyStringSchema("version (or metadata.version)"),
+		metadata?.version ?? raw.version,
+	);
 	addonFolderName(addonName, version);
-	for (const field of ["script", "css"])
-		if (metadata?.[field] !== undefined)
-			assertSafeRelativePath(metadata[field], `metadata.${field}`);
-	for (const field of ["description", "type"])
-		if (
-			metadata?.[field] !== undefined &&
-			typeof metadata[field] !== "string"
-		)
-			throw new Error(`metadata.${field} must be a string`);
-	if (
-		metadata?.author !== undefined &&
-		typeof metadata.author !== "string" &&
-		(!Array.isArray(metadata.author) ||
-			metadata.author.some((author) => typeof author !== "string"))
-	)
-		throw new Error(
-			"metadata.author must be a string or an array of strings",
+	if (raw.description !== undefined)
+		parse(
+			v.union([
+				lineStringSchema("description"),
+				v.array(lineStringSchema("description")),
+			]),
+			raw.description,
 		);
-
-	for (const [field, value] of Object.entries({
-		description: raw.description,
-		author: raw.author,
-		"metadata.description": metadata?.description,
-		"metadata.author": metadata?.author,
-	})) {
-		if (value === undefined) continue;
-		const values = Array.isArray(value) ? value : [value];
-		if (
-			values.some(
-				(item) => typeof item !== "string" || /[\r\n]/.test(item),
-			)
-		)
-			throw new Error(
-				`${field} must contain strings without line breaks`,
-			);
-	}
+	if (raw.author !== undefined)
+		parse(
+			v.union([
+				lineStringSchema("author"),
+				v.array(lineStringSchema("author")),
+			]),
+			raw.author,
+		);
 	return { addonName, version, metadata: metadata as Metadata | null };
 }
 
 function validateUserscript(userscript: unknown): void {
-	for (const [key, value] of Object.entries(
-		requireObject(userscript, "web.userscript"),
-	)) {
+	const section = parse(objectSchema("web.userscript"), userscript);
+	for (const [key, value] of Object.entries(section)) {
 		if (!/^[A-Za-z][A-Za-z0-9-]*$/.test(key))
 			throw new Error(`Invalid userscript field: ${key}`);
 		if (
@@ -167,18 +181,18 @@ function validateUserscript(userscript: unknown): void {
 			typeof value !== "string"
 		)
 			throw new Error(`web.userscript.${key} must be a string`);
-		if (
-			typeof value !== "string" &&
-			typeof value !== "boolean" &&
-			(!Array.isArray(value) ||
-				value.some((item) => typeof item !== "string"))
-		)
-			throw new Error(
+		parse(
+			v.union(
+				[v.string(), v.boolean(), v.array(v.string())],
 				`web.userscript.${key} must be a string, boolean or string array`,
-			);
+			),
+			value,
+		);
+		const values = Array.isArray(value) ? value : [value];
 		if (
-			(typeof value === "string" && /[\r\n]/.test(value)) ||
-			(Array.isArray(value) && value.some((item) => /[\r\n]/.test(item)))
+			values.some(
+				(item) => typeof item === "string" && /[\r\n]/.test(item),
+			)
 		)
 			throw new Error(
 				`web.userscript.${key} must not contain line breaks`,
@@ -187,47 +201,66 @@ function validateUserscript(userscript: unknown): void {
 }
 
 function validateReplaceLink(replaceLink: unknown): void {
-	if (!Array.isArray(replaceLink))
-		throw new Error("web.replaceLink must be an array");
-	for (const [index, value] of replaceLink.entries()) {
-		const replacement = requireObject(value, `web.replaceLink[${index}]`);
-		assertNonEmptyString(
-			replacement.from,
-			`web.replaceLink[${index}].from`,
+	const replacements = parse(
+		v.array(
+			objectSchema("web.replaceLink entry"),
+			"web.replaceLink must be an array",
+		),
+		replaceLink,
+	);
+	for (const [index, replacement] of replacements.entries()) {
+		parse(
+			v.looseObject(
+				{
+					from: nonEmptyStringSchema(
+						`web.replaceLink[${index}].from`,
+					),
+					to: v.optional(
+						v.string(
+							`web.replaceLink[${index}].to must be a string`,
+						),
+					),
+				},
+				`web.replaceLink[${index}] must be an object`,
+			),
+			replacement,
 		);
-		if (replacement.to !== undefined && typeof replacement.to !== "string")
-			throw new Error(`web.replaceLink[${index}].to must be a string`);
 	}
 }
 
 function validateTargetOptions(
-	raw: Record<string, unknown>,
+	raw: UnknownObject,
 	identity: { addonName: string; version: string },
 ): void {
 	for (const target of TARGETS) {
 		if (raw[target] === undefined) continue;
-		const section = requireObject(raw[target], target);
-		const sections = TARGET_METADATA[target].artifactSections;
-		for (const key of sections) {
+		const section = parse(objectSchema(target), raw[target]);
+		for (const key of TARGET_METADATA[target].artifactSections) {
 			if (section[key] === undefined) continue;
-			const nested = requireObject(section[key], `${target}.${key}`);
+			const nested = parse(
+				objectSchema(`${target}.${key}`),
+				section[key],
+			);
 			if (target === "nextmusic" && nested.artifactName === undefined)
 				throw new Error("nextmusic.tarGz.artifactName is required");
 			if (nested.artifactName !== undefined) {
-				assertNonEmptyString(
+				const artifactName = parse(
+					nonEmptyStringSchema(`${target}.${key}.artifactName`),
 					nested.artifactName,
-					`${target}.${key}.artifactName`,
 				);
-				resolveArtifactName(nested.artifactName, identity, target);
+				resolveArtifactName(artifactName, identity, target);
 			}
 		}
 		if (target === "bin" && section.artifactName !== undefined) {
-			assertNonEmptyString(section.artifactName, "bin.artifactName");
-			resolveArtifactName(section.artifactName, identity, target);
+			const artifactName = parse(
+				nonEmptyStringSchema("bin.artifactName"),
+				section.artifactName,
+			);
+			resolveArtifactName(artifactName, identity, target);
 		}
 		if (target === "web") {
-			if (section.icon !== undefined && typeof section.icon !== "string")
-				throw new Error("web.icon must be a string");
+			if (section.icon !== undefined)
+				parse(v.string("web.icon must be a string"), section.icon);
 			if (section.userscript !== undefined)
 				validateUserscript(section.userscript);
 			if (section.replaceLink !== undefined)
@@ -244,13 +277,11 @@ function readBuildIgnore(cwd: string): string {
 export function loadConfig(cwd = process.cwd()): Config {
 	cwd = fs.realpathSync(path.resolve(cwd));
 	const raw = readProject(cwd);
-	const build = requireObject(raw.build, "build");
+	const build = parse(objectSchema("build"), raw.build);
 	const targets = resolveTargets(build);
 	const srcDir = resolveSourceDirectory(cwd, build);
 	const { addonName, version, metadata } = resolveMetadata(srcDir, raw);
 	validateTargetOptions(raw, { addonName, version });
-
-	// Only project fields are asserted after validation; resolved fields are explicit.
 	const project = { ...raw, build } as ProjectConfig;
 	return {
 		...project,

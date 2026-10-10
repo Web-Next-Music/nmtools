@@ -1,32 +1,10 @@
 import fs from "fs";
 import path from "path";
+import dotenv from "dotenv";
 import type { Replacement } from "./types.js";
 
 export function parseEnvFile(content: string): Record<string, string> {
-	const env: Record<string, string> = {};
-
-	for (const line of content.split(/\r?\n/)) {
-		const trimmed = line.trim();
-
-		if (!trimmed || trimmed.startsWith("#")) continue;
-
-		const eqIndex = trimmed.indexOf("=");
-		if (eqIndex === -1) continue;
-
-		const key = trimmed.substring(0, eqIndex).trim();
-		let value = trimmed.substring(eqIndex + 1).trim();
-
-		if (
-			(value.startsWith('"') && value.endsWith('"')) ||
-			(value.startsWith("'") && value.endsWith("'"))
-		) {
-			value = value.slice(1, -1);
-		}
-
-		env[key] = value;
-	}
-
-	return env;
+	return dotenv.parse(content);
 }
 
 export function loadEnvFile(cwd: string): Record<string, string> {
