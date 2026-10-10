@@ -38,7 +38,7 @@ export function syncTypes(cwd = process.cwd(), silent = false): boolean {
 	if (!source) {
 		if (!silent) {
 			log.warn(
-				`${TYPINGS_FILE} not found. Install Next Music and launch it once, then run: ymtm types`,
+				`${TYPINGS_FILE} not found. Install Next Music and launch it once, then run: nmtools types`,
 			);
 		}
 		return false;

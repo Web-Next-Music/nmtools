@@ -18,8 +18,8 @@ if (typeof Bun !== "undefined") {
 		bunExe = require.resolve("bun/bin/bun.exe");
 	} catch {
 		console.error(
-			"ymtm requires the Bun runtime, which ships as a dependency.\n" +
-				"Reinstall ymtm, or install Bun from https://bun.sh and re-run.",
+			"nmtools requires the Bun runtime, which ships as a dependency.\n" +
+				"Reinstall nmtools, or install Bun from https://bun.sh and re-run.",
 		);
 		process.exit(1);
 	}

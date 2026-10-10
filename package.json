@@ -1,13 +1,13 @@
 {
-	"name": "@diram1x/ymtm",
-	"version": "4.2.0",
-	"description": "Yandex Music Theme Maker",
+	"name": "@web-next-music/nmtools",
+	"version": "5.0.0",
+	"description": "Addon development tools for Next Music and Yandex Music Web",
 	"type": "module",
 	"publishConfig": {
 		"access": "public"
 	},
 	"bin": {
-		"ymtm": "./bin/ymtm.js"
+		"nmtools": "./bin/nmtools.js"
 	},
 	"main": "dist/cli.js",
 	"files": ["bin", "dist"],

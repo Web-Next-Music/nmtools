@@ -132,7 +132,7 @@ function buildTMHeader(metadata: Config["_metadata"], config: Config): string {
 		metadata?.name ??
 		config.addonName ??
 		"Addon") as string;
-	const namespace = (us.namespace ?? "ymtm") as string;
+	const namespace = (us.namespace ?? "nmtools") as string;
 	const version = (us.version ??
 		metadata?.version ??
 		config.version ??
@@ -209,7 +209,7 @@ async function buildWebOnefile(config: Config): Promise<string> {
 		);
 	}
 
-	// Generate env-based replacements for production (only YMTM_PUBLIC_)
+	// Generate env-based replacements for production (only NMTOOLS_PUBLIC_)
 	const envReplacements = generateEnvReplacements(config._env, false);
 
 	// Combine web replacements with env replacements

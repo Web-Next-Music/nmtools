@@ -77,7 +77,7 @@ export function generateEnvReplacements(
 ): Replacement[] {
 	const filteredEnv = isDev
 		? envFileContent
-		: filterEnvByPrefix(envFileContent, "YMTM_PUBLIC_");
+		: filterEnvByPrefix(envFileContent, "NMTOOLS_PUBLIC_");
 
 	const resolvedEnv = {
 		...process.env,

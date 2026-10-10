@@ -1,17 +1,17 @@
 ## Installation
 
 ```
-npm install --save-dev @diram1x/ymtm
+npm install --save-dev @diram1x/nmtools
 ```
 
 ## Build Outputs
 
 | Client                                           | Build Command          | Formats         |
 | ------------------------------------------------ | ---------------------- | --------------- |
-| **[Next Music](https://nm.diram1x.ru/)**         | `ymtm build nextmusic` | `.tar.gz`       |
-| **[PulseSync](https://pulsesync.dev/)**          | `ymtm build pulsesync` | `.zip`, `.pext` |
-| **[Yandex Music Web](https://music.yandex.ru/)** | `ymtm build web`       | `.user.js`      |
-| **Module**                                       | `ymtm build bin`       | `.bin`          |
+| **[Next Music](https://nm.diram1x.ru/)**         | `nmtools build nextmusic` | `.tar.gz`       |
+| **[PulseSync](https://pulsesync.dev/)**          | `nmtools build pulsesync` | `.zip`, `.pext` |
+| **[Yandex Music Web](https://music.yandex.ru/)** | `nmtools build web`       | `.user.js`      |
+| **Module**                                       | `nmtools build bin`       | `.bin`          |
 
 ### Naming
 
@@ -52,10 +52,10 @@ dist/
     "author": "Your name",
     "license": "Your Project License",
     "scripts": {
-        "build": "ymtm build",
-        "build:nextmusic": "ymtm build nextmusic",
-        "build:pulsesync": "ymtm build pulsesync",
-        "build:web": "ymtm build web"
+        "build": "nmtools build",
+        "build:nextmusic": "nmtools build nextmusic",
+        "build:pulsesync": "nmtools build pulsesync",
+        "build:web": "nmtools build web"
     },
     "build": {
         "targets": [
@@ -93,7 +93,7 @@ dist/
         ]
     },
     "devDependencies": {
-        "@diram1x/ymtm": "^2.2.0"
+        "@diram1x/nmtools": "^4.2.0"
     }
 }
 ```

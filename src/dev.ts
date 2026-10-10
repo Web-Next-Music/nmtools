@@ -198,7 +198,7 @@ export async function runDev(cliTarget?: string): Promise<void> {
 		target = await prompt("Select build target:", devTargets);
 	}
 
-	log.header("ymtm", config._version);
+	log.header("nmtools", config._version);
 	process.stdout.write(
 		`  target  ${displayName(target)}  •  ${config.addonName}\n\n`,
 	);

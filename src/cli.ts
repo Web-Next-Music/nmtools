@@ -42,7 +42,7 @@ export async function run(args: string[]): Promise<void> {
 	}
 
 	if (command === "build") {
-		log.header("ymtm", version);
+		log.header("nmtools", version);
 
 		let config;
 		try {
@@ -67,7 +67,7 @@ export async function run(args: string[]): Promise<void> {
 	}
 
 	if (command === "version" || command === "ver") {
-		console.log(`ymtm: ${version}`);
+		console.log(`nmtools: ${version}`);
 		return;
 	}
 

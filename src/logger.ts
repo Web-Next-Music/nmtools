@@ -35,7 +35,7 @@ export function step(msg: string): void {
 }
 
 export function header(pkg: string, version?: string): void {
-	const line = `${BOLD}${BLUE}ymtm${RESET} ${GRAY}v${version || "1.0.0"}${RESET}`;
+	const line = `${BOLD}${BLUE}nmtools${RESET} ${GRAY}v${version || "1.0.0"}${RESET}`;
 	process.stdout.write(os.EOL + line + os.EOL);
 }
 

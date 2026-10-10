@@ -23,7 +23,7 @@ export function loadConfig(cwd = process.cwd()): Config {
 	// Load .env file
 	pkg._env = loadEnvFile(cwd);
 
-	// ymtm version
+	// nmtools version
 	const selfPkg = _require("../package.json") as { version?: string };
 	pkg._version = selfPkg.version || "Unknown";
 

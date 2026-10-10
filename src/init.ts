@@ -22,11 +22,11 @@ const DEFAULT_PKG = {
 	author: "developer",
 	license: "MIT",
 	scripts: {
-		dev: "ymtm dev",
-		build: "ymtm build",
-		"build:pulsesync": "ymtm build pulsesync",
-		"build:nextmusic": "ymtm build nextmusic",
-		"build:web": "ymtm build web",
+		dev: "nmtools dev",
+		build: "nmtools build",
+		"build:pulsesync": "nmtools build pulsesync",
+		"build:nextmusic": "nmtools build nextmusic",
+		"build:web": "nmtools build web",
 	},
 	build: {
 		src: "src",
@@ -45,7 +45,7 @@ const DEFAULT_PKG = {
 		},
 	},
 	devDependencies: {
-		"@diram1x/ymtm": `^${config.version}`,
+		"@diram1x/nmtools": `^${config.version}`,
 	},
 };
 
