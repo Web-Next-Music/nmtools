@@ -24,20 +24,15 @@ const DEFAULT_PKG = {
 	scripts: {
 		dev: "nmtools dev",
 		build: "nmtools build",
-		"build:pulsesync": "nmtools build pulsesync",
 		"build:nextmusic": "nmtools build nextmusic",
 		"build:web": "nmtools build web",
 	},
 	build: {
 		src: "src",
-		targets: ["nextmusic", "pulsesync", "web"],
+		targets: ["nextmusic", "web"],
 	},
 	nextmusic: {
 		tarGz: { artifactName: "${addon.name}_${addon.version}_nm.tar.gz" },
-	},
-	pulsesync: {
-		zip: { artifactName: "${addon.name}_${addon.version}_ps.zip" },
-		pext: { artifactName: "${addon.name}_${addon.version}_ps.pext" },
 	},
 	web: {
 		userscript: {
@@ -45,17 +40,23 @@ const DEFAULT_PKG = {
 		},
 	},
 	devDependencies: {
-		"@diram1x/nmtools": `^${config.version}`,
+		[config.name]: `^${config.version}`,
 	},
 };
 
-export function init(cwd = process.cwd()): void {
+export function init(cwd = process.cwd(), force = false): void {
+	const pkgPath = path.join(cwd, "package.json");
+	if (fs.existsSync(pkgPath) && !force)
+		throw new Error(
+			"package.json already exists. Use init --force to replace it explicitly.",
+		);
 	log.task("init");
 
 	// package.json
-	const pkgPath = path.join(cwd, "package.json");
-
-	fs.writeFileSync(pkgPath, JSON.stringify(DEFAULT_PKG, null, 2), "utf8");
+	fs.writeFileSync(pkgPath, JSON.stringify(DEFAULT_PKG, null, 2), {
+		encoding: "utf8",
+		flag: force ? "w" : "wx",
+	});
 	log.file("write", "package.json");
 
 	// src/
@@ -120,11 +121,6 @@ export function init(cwd = process.cwd()): void {
 	if (!fs.existsSync(tsPath) && !fs.existsSync(jsPath)) {
 		fs.writeFileSync(tsPath, "// shared script\n", "utf8");
 		log.file("write", "src/script.ts");
-	} else if (!fs.existsSync(jsPath)) {
-		// tsPath already exists, skip
-	} else {
-		fs.writeFileSync(jsPath, "// shared script\n", "utf8");
-		log.file("write", "src/script.js");
 	}
 
 	// src/assets/
@@ -138,12 +134,6 @@ export function init(cwd = process.cwd()): void {
 
 	fs.mkdirSync(brandingDir, { recursive: true });
 	log.file("write", "src/assets/branding/");
-
-	// src/ps/
-	const psDir = path.join(srcDir, "ps");
-
-	fs.mkdirSync(psDir, { recursive: true });
-	log.file("write", "src/ps/");
 
 	// src/nm/
 	const nmDir = path.join(srcDir, "nm");

@@ -6,9 +6,9 @@ import {
 	resolveArtifactName,
 	addonFolderName,
 	fileSize,
-	parseBuildIgnore,
 } from "../utils.js";
 import { buildToDir } from "../build-core.js";
+import { safeOutputPath } from "../src-resolver.js";
 import type { Config } from "../types.js";
 
 // Production build
@@ -21,11 +21,20 @@ export async function buildNextMusic(config: Config): Promise<void> {
 	log.info("building", { target: "nextmusic", addonName: name, version });
 
 	const unpackedFolder = addonFolderName(name, version) + "_nm-unpacked";
-	const outDir = path.join(cwd, "release", unpackedFolder, name);
+	const unpackedDir = safeOutputPath(
+		path.join(cwd, "release"),
+		unpackedFolder,
+	);
+	const outDir = safeOutputPath(unpackedDir, name);
+	fs.rmSync(unpackedDir, { recursive: true, force: true });
 
-	await buildToDir(config, { targetFolder: "nm", outDir });
+	await buildToDir(config, {
+		targetFolder: "nm",
+		outDir,
+		copyMetadata: true,
+		copyLicense: true,
+	});
 
-	const ignoreRules = parseBuildIgnore(config._buildIgnore);
 	const tarGzConfig = config.nextmusic?.tarGz;
 
 	if (tarGzConfig) {
@@ -34,8 +43,8 @@ export async function buildNextMusic(config: Config): Promise<void> {
 			config,
 			"nextmusic",
 		);
-		const tarGzPath = path.join(cwd, "release", tarGzName);
-		createTarGz(tarGzPath, [{ disk: outDir, archive: name }], ignoreRules);
+		const tarGzPath = safeOutputPath(path.join(cwd, "release"), tarGzName);
+		createTarGz(tarGzPath, [{ disk: outDir, archive: name }]);
 		log.artifact(tarGzName, fileSize(tarGzPath));
 		log.done("nextmusic", tarGzName);
 	} else {
@@ -45,7 +54,10 @@ export async function buildNextMusic(config: Config): Promise<void> {
 
 // Dev build
 export async function buildNextMusicDev(config: Config): Promise<void> {
-	const outDir = path.join(config._cwd, "dist", config.addonName);
+	const outDir = safeOutputPath(
+		path.join(config._cwd, "dist"),
+		config.addonName,
+	);
 	if (fs.existsSync(outDir))
 		fs.rmSync(outDir, { recursive: true, force: true });
 	await buildToDir(config, {
@@ -53,5 +65,7 @@ export async function buildNextMusicDev(config: Config): Promise<void> {
 		outDir,
 		silent: true,
 		isDev: true,
+		copyMetadata: true,
+		copyLicense: true,
 	});
 }

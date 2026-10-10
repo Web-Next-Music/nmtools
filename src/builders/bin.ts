@@ -9,38 +9,31 @@ import {
 	compileSCSS,
 	minifyCSS,
 	applyReplacements,
+	applyScriptReplacements,
 	readBin,
 	writeBin,
 	IMAGE_EXTS,
 	isScriptFile,
 } from "../utils.js";
-import {
-	collectSourceFiles,
-	findDirsNamed,
-	TARGET_FOLDERS,
-} from "../src-resolver.js";
+import { createSourceIndex, safeOutputPath } from "../src-resolver.js";
 import { generateEnvReplacements } from "../env.js";
 import type { Config } from "../types.js";
 
 async function bundleBin(
 	config: Config,
 	opts: { outPath: string; isDev: boolean; silent: boolean },
-): Promise<boolean> {
+): Promise<void> {
 	const srcDir = config._srcDir;
 	const ignoreRules = parseBuildIgnore(config._buildIgnore);
 	const logFile: (action: string, name: string) => void = opts.silent
 		? () => {}
 		: (a, n) => log.file(a, n);
 
-	// Target-agnostic format: abort if the source tree is split by target.
-	for (const folder of TARGET_FOLDERS) {
-		const found = findDirsNamed(srcDir, folder, ignoreRules);
-		if (found.length > 0) {
-			log.error(
-				`bin build does not support targets: found "${folder}/" in src. Remove target folders (web/ps/nm) to build a .bin module.`,
-			);
-			return false;
-		}
+	const index = createSourceIndex(srcDir, ignoreRules);
+	if (index.targetDirs.length > 0) {
+		throw new Error(
+			`bin build does not support target folders (web/nm): ${index.targetDirs.join(", ")}`,
+		);
 	}
 
 	const replacements = [
@@ -48,7 +41,8 @@ async function bundleBin(
 		...generateEnvReplacements(config._env, opts.isDev),
 	];
 
-	const { shared } = collectSourceFiles(srcDir, "bin", ignoreRules);
+	const { shared } = index;
+	const policy = { srcDir, allowedFiles: shared };
 
 	const jsFiles: string[] = [];
 	const cssChunks: string[] = [];
@@ -69,29 +63,35 @@ async function bundleBin(
 		} else if (ext === ".scss") {
 			let content = fs.readFileSync(srcFile, "utf8");
 			content = applyReplacements(content, replacements);
-			cssChunks.push((await compileSCSS(srcFile, content)).trim());
+			cssChunks.push(
+				(await compileSCSS(srcFile, content, policy)).trim(),
+			);
 			logFile("minify", path.relative(srcDir, srcFile));
 		} else if (ext === ".bin") {
 			const mod = readBin(srcFile);
-			if (mod.css) cssChunks.unshift(mod.css.trim());
-			if (mod.js) binJs.push(mod.js);
+			if (mod.css)
+				cssChunks.unshift(
+					applyReplacements(mod.css, replacements).trim(),
+				);
+			if (mod.js)
+				binJs.push(applyScriptReplacements(mod.js, replacements));
 			logFile("merge", path.relative(srcDir, srcFile));
 		}
 	}
 
 	// .bin is always shipped minified — dev only affects env replacements.
 	let jsOut =
-		jsFiles.length > 0 ? await bundleJS(jsFiles, replacements, false) : "";
+		jsFiles.length > 0
+			? await bundleJS(jsFiles, replacements, false, policy)
+			: "";
 	jsOut += binJs.join("");
 	const cssOut = cssChunks.join("");
 
 	if (!jsOut && !cssOut) {
-		log.warn("nothing to bundle: no styles or scripts found");
-		return false;
+		throw new Error("nothing to bundle: no styles or scripts found");
 	}
 
 	writeBin(opts.outPath, { css: cssOut, js: jsOut });
-	return true;
 }
 
 // Production build
@@ -108,14 +108,13 @@ export async function buildBin(config: Config): Promise<void> {
 		config,
 		"bin",
 	);
-	const outPath = path.join(cwd, "release", artifactName);
+	const outPath = safeOutputPath(path.join(cwd, "release"), artifactName);
 
-	const ok = await bundleBin(config, {
+	await bundleBin(config, {
 		outPath,
 		isDev: false,
 		silent: false,
 	});
-	if (!ok) return;
 
 	log.artifact(artifactName, fileSize(outPath));
 	log.done("bin", artifactName);
@@ -128,7 +127,10 @@ export async function buildBinDev(config: Config): Promise<void> {
 		config,
 		"bin",
 	);
-	const outPath = path.join(config._cwd, "dist", artifactName);
+	const outPath = safeOutputPath(
+		path.join(config._cwd, "dist"),
+		artifactName,
+	);
 
 	await bundleBin(config, { outPath, isDev: true, silent: true });
 }

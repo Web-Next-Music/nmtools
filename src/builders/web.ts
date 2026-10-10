@@ -10,8 +10,15 @@ import {
 	compileSCSS,
 	readBin,
 	isScriptFile,
+	applyReplacements,
+	applyScriptReplacements,
+	parseBuildIgnore,
 } from "../utils.js";
-import { collectSourceFiles } from "../src-resolver.js";
+import {
+	createSourceIndex,
+	safeOutputPath,
+	type SourceIndex,
+} from "../src-resolver.js";
 import { generateEnvReplacements } from "../env.js";
 import type { Config, Replacement, TMUserScript } from "../types.js";
 
@@ -39,58 +46,84 @@ function fileToDataUrl(filePath: string): string {
 	return `data:${mime};base64,${data}`;
 }
 
-function findAssetFile(assetsDir: string, targetName: string): string | null {
-	if (!fs.existsSync(assetsDir)) return null;
-	const stack: string[] = [assetsDir];
-	while (stack.length) {
-		const dir = stack.pop()!;
-		for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-			const full = path.join(dir, entry.name);
-			if (entry.isDirectory()) stack.push(full);
-			else if (entry.name === targetName) return full;
+function createAssetLookup(
+	index: SourceIndex,
+	srcDir: string,
+): Map<string, Set<string>> {
+	const lookup = new Map<string, Set<string>>();
+	for (const file of index.assets) {
+		const relative = index.assetPaths.get(file)!.replace(/\\/g, "/");
+		for (const key of [
+			relative,
+			"assets/" + relative,
+			path.relative(srcDir, file).replace(/\\/g, "/"),
+			path.basename(file),
+		]) {
+			if (!lookup.has(key)) lookup.set(key, new Set());
+			lookup.get(key)!.add(file);
 		}
 	}
-	return null;
+	return lookup;
 }
 
-function extractFileNameFromUrlOrPath(value: unknown): string | null {
-	if (!value || typeof value !== "string") return null;
-	const clean = value.split("?")[0].split("#")[0];
-	const normalized = clean.replace(/\\/g, "/");
-	const parts = normalized.split("/");
-	return parts[parts.length - 1] || null;
+function findAssetFile(
+	lookup: Map<string, Set<string>>,
+	srcDir: string,
+	value: string,
+): string | null {
+	let clean = value.split(/[?#]/)[0].replace(/\\/g, "/");
+	try {
+		if (/^[a-z][a-z\d+.-]*:\/\//i.test(clean))
+			clean = new URL(clean).pathname;
+		clean = decodeURIComponent(clean);
+	} catch {
+		return null;
+	}
+	clean = clean.replace(/^\.\//, "").replace(/^\/+/, "");
+	if (!clean || clean.split("/").includes("..")) return null;
+	const marker = clean.lastIndexOf("/assets/");
+	const candidates = [
+		...(lookup.get(clean) ??
+			(marker >= 0 ? lookup.get(clean.slice(marker + 1)) : undefined) ??
+			lookup.get(path.posix.basename(clean)) ??
+			[]),
+	];
+	if (candidates.length > 1)
+		throw new Error(
+			`Ambiguous asset reference "${value}": ${candidates.map((file) => path.relative(srcDir, file)).join(", ")}`,
+		);
+	return candidates[0] ?? null;
 }
 
-function buildWebReplacementMap(config: Config): Replacement[] {
+function buildWebReplacementMap(
+	config: Config,
+	index: SourceIndex,
+): Replacement[] {
 	const srcDir = config._srcDir;
 	const assetsDir = path.join(srcDir, "assets");
 	const replacements = config.web?.replaceLink ?? [];
 	const map: Replacement[] = [];
+	const lookup = createAssetLookup(index, srcDir);
+	const dataUrls = new Map<string, string>();
 
 	for (const item of replacements) {
 		const from = item?.from;
 		const to = item?.to;
 		if (!from) continue;
-		if (to) {
+		if (to !== undefined) {
 			map.push({ from, to });
 			continue;
 		}
 
-		const fileName = extractFileNameFromUrlOrPath(from);
-		if (!fileName) {
-			log.warn(
-				`web replace skipped: cannot resolve filename from ${from}`,
-			);
-			continue;
-		}
-
-		const assetFile = findAssetFile(assetsDir, fileName);
+		const assetFile = findAssetFile(lookup, srcDir, from);
 		if (!assetFile) {
-			log.warn(`web replace skipped: asset not found - ${fileName}`);
+			log.warn(`web replace skipped: asset not found - ${from}`);
 			continue;
 		}
 
-		map.push({ from, to: fileToDataUrl(assetFile) });
+		if (!dataUrls.has(assetFile))
+			dataUrls.set(assetFile, fileToDataUrl(assetFile));
+		map.push({ from, to: dataUrls.get(assetFile)! });
 		log.file(
 			"inline",
 			`${from} → assets/${path.relative(assetsDir, assetFile)}`,
@@ -98,16 +131,6 @@ function buildWebReplacementMap(config: Config): Replacement[] {
 	}
 
 	return map;
-}
-
-function applyReplacements(
-	content: string,
-	replacements: Replacement[],
-): string {
-	let result = content;
-	for (const { from, to } of replacements)
-		if (from && to) result = result.split(from).join(to);
-	return result;
 }
 
 function cssToJS(cssContent: string): string {
@@ -200,12 +223,16 @@ async function buildWebOnefile(config: Config): Promise<string> {
 	const cwd = config._cwd;
 	const srcDir = config._srcDir;
 	const metadata = config._metadata;
-	const webReplacements = buildWebReplacementMap(config);
+	const index = createSourceIndex(
+		srcDir,
+		parseBuildIgnore(config._buildIgnore),
+	);
+	const webReplacements = buildWebReplacementMap(config, index);
 	const onefileCfg = config.web?.onefile;
 
 	if (onefileCfg) {
 		log.warn(
-			"web.onefile is deprecated - move artifactName into web.artifactName and use the web.userscript section instead",
+			"web.onefile is deprecated - move artifactName into web.userscript.artifactName and use the web.userscript section instead",
 		);
 	}
 
@@ -215,8 +242,10 @@ async function buildWebOnefile(config: Config): Promise<string> {
 	// Combine web replacements with env replacements
 	const replacements = [...webReplacements, ...envReplacements];
 
-	const { shared, targetSpecific } = collectSourceFiles(srcDir, "web");
+	const shared = index.shared;
+	const targetSpecific = index.targets.web;
 	const allFiles = [...shared, ...targetSpecific];
+	const policy = { srcDir, allowedFiles: allFiles };
 
 	let cssBlock = "";
 
@@ -233,8 +262,12 @@ async function buildWebOnefile(config: Config): Promise<string> {
 			cssFiles.push(f);
 		} else if (ext === ".bin") {
 			const mod = readBin(f);
-			if (mod.css) cssBlock = cssToJS(mod.css).trim() + cssBlock;
-			if (mod.js) binJs.push(mod.js);
+			if (mod.css)
+				cssBlock =
+					cssToJS(applyReplacements(mod.css, replacements)).trim() +
+					cssBlock;
+			if (mod.js)
+				binJs.push(applyScriptReplacements(mod.js, replacements));
 			log.file("merge", path.relative(srcDir, f));
 		}
 	}
@@ -245,7 +278,7 @@ async function buildWebOnefile(config: Config): Promise<string> {
 		content = applyReplacements(content, replacements);
 		content =
 			ext === ".scss"
-				? await compileSCSS(f, content)
+				? await compileSCSS(f, content, policy)
 				: await minifyCSS(f, content);
 		cssBlock += cssToJS(content).trim();
 		log.file("minify", `${path.relative(srcDir, f)} → css-in-js`);
@@ -253,7 +286,7 @@ async function buildWebOnefile(config: Config): Promise<string> {
 
 	const jsBlock =
 		(jsFiles.length > 0
-			? (await bundleJS(jsFiles, replacements)).trim()
+			? (await bundleJS(jsFiles, replacements, false, policy)).trim()
 			: "") + binJs.join("");
 
 	const header = buildTMHeader(metadata, config);
@@ -262,11 +295,12 @@ async function buildWebOnefile(config: Config): Promise<string> {
 
 	ensureDir(path.join(cwd, "release"));
 	const rawArtifactName =
-		onefileCfg?.artifactName ??
 		config.web?.userscript?.artifactName ??
+		onefileCfg?.artifactName ??
 		"${addon.name}_${addon.version}_${build.package}.user.js";
 	const artifactName = resolveArtifactName(rawArtifactName, config, "web");
-	const outPath = path.join(cwd, "release", artifactName);
+	const outPath = safeOutputPath(path.join(cwd, "release"), artifactName);
+	ensureDir(path.dirname(outPath));
 	fs.writeFileSync(outPath, output, "utf8");
 	log.artifact(artifactName, fileSize(outPath));
 	return artifactName;

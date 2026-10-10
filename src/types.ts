@@ -44,14 +44,11 @@ export interface Config {
 	build: {
 		src?: string;
 		targets?: string[];
+		/** @deprecated Use targets instead. */
 		package?: string[];
 	};
 	nextmusic?: {
 		tarGz?: { artifactName: string };
-	};
-	pulsesync?: {
-		zip?: { artifactName: string };
-		pext?: { artifactName: string };
 	};
 	web?: {
 		/** @deprecated Use `userscript` section instead */
@@ -85,10 +82,4 @@ export interface TarEntry {
 	name: string;
 	stat: Stats;
 	type: "0" | "5";
-}
-
-export interface ZipFileEntry {
-	disk: string | null;
-	name: string;
-	stat: Stats;
 }

@@ -12,9 +12,23 @@ const { version } = _require("../package.json") as { version: string };
 export async function run(args: string[]): Promise<void> {
 	const [command, ...rest] = args;
 
+	if (
+		!command ||
+		command === "help" ||
+		command === "--help" ||
+		command === "-h"
+	) {
+		console.log(
+			"nmtools <command>\n\n  init [--force]       Create an addon project\n  build [targets...]   Build nextmusic, web or bin\n  dev [target]         Watch nextmusic or bin\n  types                Sync Next Music typings\n  version              Print version",
+		);
+		return;
+	}
+
 	if (command === "init") {
 		try {
-			init(process.cwd());
+			if (rest.some((arg) => arg !== "--force"))
+				throw new Error("Usage: nmtools init [--force]");
+			init(process.cwd(), rest.includes("--force"));
 		} catch (e) {
 			log.error(`Init failed: ${(e as Error).message}`);
 			process.exit(1);
@@ -33,7 +47,7 @@ export async function run(args: string[]): Promise<void> {
 	}
 
 	if (command === "dev") {
-		runDev(rest[0]).catch((e: Error) => {
+		await runDev(rest[0]).catch((e: Error) => {
 			log.error(`Dev failed: ${e.message}`);
 			if (process.env.DEBUG) console.error(e.stack);
 			process.exit(1);
