@@ -1,14 +1,15 @@
 import fs from "fs";
 import path from "path";
 import * as log from "../logger.js";
+import { fileSize } from "../utils.js";
 import {
-	createTarGz,
 	resolveArtifactName,
 	addonFolderName,
-	fileSize,
-} from "../utils.js";
+	safeOutputPath,
+} from "../paths.js";
+import { TARGET_METADATA } from "../targets.js";
+import { createTarGz } from "../archive.js";
 import { buildToDir } from "../build-core.js";
-import { safeOutputPath } from "../src-resolver.js";
 import type { Config } from "../types.js";
 
 // Production build
@@ -29,7 +30,7 @@ export async function buildNextMusic(config: Config): Promise<void> {
 	fs.rmSync(unpackedDir, { recursive: true, force: true });
 
 	await buildToDir(config, {
-		targetFolder: "nm",
+		targetFolder: TARGET_METADATA.nextmusic.sourceFolder,
 		outDir,
 		copyMetadata: true,
 		copyLicense: true,
@@ -61,7 +62,7 @@ export async function buildNextMusicDev(config: Config): Promise<void> {
 	if (fs.existsSync(outDir))
 		fs.rmSync(outDir, { recursive: true, force: true });
 	await buildToDir(config, {
-		targetFolder: "nm",
+		targetFolder: TARGET_METADATA.nextmusic.sourceFolder,
 		outDir,
 		silent: true,
 		isDev: true,

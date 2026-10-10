@@ -13,6 +13,7 @@
 	"files": ["bin", "dist"],
 	"scripts": {
 		"typecheck": "tsc --noEmit",
+
 		"build": "tsc --noEmit && bun build src/cli.ts --target bun --outdir dist --format esm --minify",
 		"format": "biome format --write .",
 		"prepack": "npm run build"

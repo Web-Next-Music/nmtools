@@ -1,21 +1,11 @@
-import fs from "fs";
 import path from "path";
 import * as log from "../logger.js";
-import {
-	resolveArtifactName,
-	fileSize,
-	parseBuildIgnore,
-	bundleJS,
-	compileSCSS,
-	minifyCSS,
-	applyReplacements,
-	applyScriptReplacements,
-	readBin,
-	writeBin,
-	IMAGE_EXTS,
-	isScriptFile,
-} from "../utils.js";
-import { createSourceIndex, safeOutputPath } from "../src-resolver.js";
+import { fileSize } from "../utils.js";
+import { resolveArtifactName, safeOutputPath } from "../paths.js";
+import { parseBuildIgnore } from "../ignore.js";
+import { writeBin } from "../bin-format.js";
+import { compileSources } from "../compile-sources.js";
+import { createSourceIndex } from "../src-resolver.js";
 import { generateEnvReplacements } from "../env.js";
 import type { Config } from "../types.js";
 
@@ -41,50 +31,14 @@ async function bundleBin(
 		...generateEnvReplacements(config._env, opts.isDev),
 	];
 
-	const { shared } = index;
-	const policy = { srcDir, allowedFiles: shared };
-
-	const jsFiles: string[] = [];
-	const cssChunks: string[] = [];
-	const binJs: string[] = [];
-
-	for (const srcFile of shared) {
-		const ext = path.extname(srcFile).toLowerCase();
-		if (IMAGE_EXTS.includes(ext)) continue;
-
-		if (isScriptFile(srcFile)) {
-			jsFiles.push(srcFile);
-			logFile("minify", path.relative(srcDir, srcFile));
-		} else if (ext === ".css") {
-			let content = fs.readFileSync(srcFile, "utf8");
-			content = applyReplacements(content, replacements);
-			cssChunks.push((await minifyCSS(srcFile, content)).trim());
-			logFile("minify", path.relative(srcDir, srcFile));
-		} else if (ext === ".scss") {
-			let content = fs.readFileSync(srcFile, "utf8");
-			content = applyReplacements(content, replacements);
-			cssChunks.push(
-				(await compileSCSS(srcFile, content, policy)).trim(),
-			);
-			logFile("minify", path.relative(srcDir, srcFile));
-		} else if (ext === ".bin") {
-			const mod = readBin(srcFile);
-			if (mod.css)
-				cssChunks.unshift(
-					applyReplacements(mod.css, replacements).trim(),
-				);
-			if (mod.js)
-				binJs.push(applyScriptReplacements(mod.js, replacements));
-			logFile("merge", path.relative(srcDir, srcFile));
-		}
-	}
-
-	// .bin is always shipped minified — dev only affects env replacements.
-	let jsOut =
-		jsFiles.length > 0
-			? await bundleJS(jsFiles, replacements, false, policy)
-			: "";
-	jsOut += binJs.join("");
+	// Dev affects replacements only: bin scripts are always minified.
+	const { js: jsOut, cssChunks } = await compileSources({
+		files: index.shared,
+		srcDir,
+		replacements,
+		logFile,
+		isDev: false,
+	});
 	const cssOut = cssChunks.join("");
 
 	if (!jsOut && !cssOut) {

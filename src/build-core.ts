@@ -1,15 +1,9 @@
 import fs from "fs";
 import path from "path";
 import * as log from "./logger.js";
+import { ensureDir, IMAGE_EXTS, removeEmptyAssetsDir } from "./utils.js";
+import { parseBuildIgnore, shouldIgnore } from "./ignore.js";
 import {
-	ensureDir,
-	IMAGE_EXTS,
-	parseBuildIgnore,
-	shouldIgnore,
-	removeEmptyAssetsDir,
-} from "./utils.js";
-import {
-	collectSourceFiles,
 	createSourceIndex,
 	OutputRegistry,
 	copyAssetsToOut,
@@ -54,17 +48,11 @@ export async function buildToDir(
 
 	const index = createSourceIndex(srcDir, ignoreRules);
 	const outputs = new OutputRegistry(opts.outDir);
-	const { shared, targetSpecific, assets } = collectSourceFiles(
-		srcDir,
-		opts.targetFolder,
-		ignoreRules,
-		index,
-	);
-	const allFiles = [...targetSpecific, ...shared];
-
+	const allFiles = [
+		...(index.targets[opts.targetFolder] ?? []),
+		...index.shared,
+	];
 	ensureDir(opts.outDir);
-
-	// Icon
 	const brandingDir = path.join(srcDir, "assets", "branding");
 	const findImageFile = (dir: string, name: string): string | undefined =>
 		[...index.assets, ...index.shared].find(
@@ -73,23 +61,15 @@ export async function buildToDir(
 				path.basename(file, path.extname(file)) === name &&
 				IMAGE_EXTS.includes(path.extname(file).toLowerCase()),
 		);
-	const iconFile =
-		findImageFile(brandingDir, "icon") ?? findImageFile(srcDir, "icon");
-	if (iconFile) {
-		const ext = path.extname(iconFile);
-		fs.copyFileSync(iconFile, outputs.claim(`icon${ext}`, iconFile));
-		logFile("copy", `icon${ext}`);
-	} else {
-		logWarn("No icon image found in assets/branding/ or src/");
-	}
-
-	// Banner
-	const bannerFile =
-		findImageFile(brandingDir, "banner") ?? findImageFile(srcDir, "banner");
-	if (bannerFile) {
-		const ext = path.extname(bannerFile);
-		fs.copyFileSync(bannerFile, outputs.claim(`banner${ext}`, bannerFile));
-		logFile("copy", `banner${ext}`);
+	for (const name of ["icon", "banner"]) {
+		const file =
+			findImageFile(brandingDir, name) ?? findImageFile(srcDir, name);
+		if (file) {
+			const destination = name + path.extname(file);
+			fs.copyFileSync(file, outputs.claim(destination, file));
+			logFile("copy", destination);
+		} else if (name === "icon")
+			logWarn("No icon image found in assets/branding/ or src/");
 	}
 
 	// metadata.json
@@ -119,20 +99,20 @@ export async function buildToDir(
 
 	// Assets
 	copyAssetsToOut(srcDir, opts.outDir, ignoreRules, index, outputs);
-	if (assets.length > 0) logFile("copy", "assets/");
+	if (index.assets.length > 0) logFile("copy", "assets/");
 
 	// Bundle JS/CSS
-	await bundleToDir(
+	await bundleToDir({
 		allFiles,
 		srcDir,
-		opts.targetFolder,
-		opts.outDir,
+		targetFolder: opts.targetFolder,
+		outDir: opts.outDir,
 		metadata,
 		replacements,
 		logFile,
 		isDev,
 		outputs,
-	);
+	});
 
 	// Cleanup
 	removeEmptyAssetsDir(opts.outDir);

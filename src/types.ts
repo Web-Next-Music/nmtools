@@ -1,3 +1,6 @@
+import type { Target } from "./targets.js";
+export type { Target } from "./targets.js";
+
 export interface Metadata {
 	name?: string;
 	version?: string;
@@ -35,12 +38,12 @@ export interface TMUserScript {
 	[key: string]: string | string[] | boolean | undefined;
 }
 
-export interface Config {
-	name: string;
-	version: string;
-	addonName: string;
-	description?: string;
-	author?: string;
+export interface ProjectConfig {
+	name?: string;
+	version?: string;
+	addonName?: string;
+	description?: string | string[];
+	author?: string | string[];
 	build: {
 		src?: string;
 		targets?: string[];
@@ -60,8 +63,15 @@ export interface Config {
 	bin?: {
 		artifactName?: string;
 	};
+}
+
+export interface Config extends ProjectConfig {
+	version: string;
+	addonName: string;
 	// Internal fields added by loadConfig
-	_targets: string[];
+	_targets: Target[] & {
+		includes(searchElement: string, fromIndex?: number): boolean;
+	};
 	_cwd: string;
 	_version: string;
 	_srcDir: string;

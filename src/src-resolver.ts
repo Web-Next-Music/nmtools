@@ -1,21 +1,17 @@
 import fs from "fs";
 import path from "path";
-import {
-	ensureDir,
-	shouldIgnore,
-	IMAGE_EXTS,
-	bundleJS,
-	compileSCSS,
-	minifyCSS,
-	applyReplacements,
-	applyScriptReplacements,
-	readBin,
-	isScriptFile,
-	isTypeDeclaration,
-} from "./utils.js";
+import { safeOutputPath, OutputRegistry } from "./paths.js";
+export { safeOutputPath, OutputRegistry } from "./paths.js";
+import { TARGET_METADATA } from "./targets.js";
+import { shouldIgnore } from "./ignore.js";
+import { compileSources } from "./compile-sources.js";
 import type { Metadata, Replacement } from "./types.js";
 
-export const TARGET_FOLDERS = new Set(["nm", "web"]);
+export const TARGET_FOLDERS = new Set<string>(
+	Object.values(TARGET_METADATA)
+		.map((target) => target.sourceFolder)
+		.filter((folder) => folder !== null),
+);
 
 const IGNORED_DIRS = new Set(["node_modules", ".git"]);
 
@@ -35,7 +31,9 @@ export function createSourceIndex(
 ): SourceIndex {
 	const index: SourceIndex = {
 		shared: [],
-		targets: { nm: [], web: [] },
+		targets: Object.fromEntries(
+			[...TARGET_FOLDERS].map((folder) => [folder, [] as string[]]),
+		),
 		assets: [],
 		assetPaths: new Map(),
 		targetDirs: [],
@@ -76,81 +74,6 @@ export function createSourceIndex(
 	return index;
 }
 
-export function collectSourceFiles(
-	srcDir: string,
-	targetFolder: string,
-	ignoreRules: string[] = [],
-	index = createSourceIndex(srcDir, ignoreRules),
-): { shared: string[]; targetSpecific: string[]; assets: string[] } {
-	return {
-		shared: index.shared,
-		targetSpecific: index.targets[targetFolder] ?? [],
-		assets: index.assets,
-	};
-}
-
-export function safeOutputPath(outDir: string, relative: string): string {
-	const normalized = relative.replace(/\\/g, "/");
-	if (
-		!normalized ||
-		path.posix.isAbsolute(normalized) ||
-		/^[a-z]:/i.test(normalized) ||
-		normalized.split("/").includes("..") ||
-		normalized.includes("\0")
-	)
-		throw new Error(`Unsafe output path: ${relative}`);
-	const root = path.resolve(outDir);
-	const dest = path.resolve(root, normalized);
-	if (dest === root || !dest.startsWith(root + path.sep))
-		throw new Error(`Unsafe output path: ${relative}`);
-	// Existing symlinks must not redirect writes outside the output tree.
-	let current = dest;
-	while (true) {
-		let stat: fs.Stats | undefined;
-		try {
-			stat = fs.lstatSync(current);
-		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-		}
-		if (stat?.isSymbolicLink())
-			throw new Error(`Symlink in output path: ${current}`);
-		if (current === root) break;
-		current = path.dirname(current);
-	}
-	return dest;
-}
-
-export class OutputRegistry {
-	private destinations = new Map<string, string>();
-	private directories = new Map<string, string>();
-	constructor(private outDir: string) {}
-	claim(relative: string, source: string): string {
-		const dest = safeOutputPath(this.outDir, relative);
-		const root = path.resolve(this.outDir);
-		let owner = this.destinations.get(dest) ?? this.directories.get(dest);
-		for (
-			let parent = path.dirname(dest);
-			parent !== root;
-			parent = path.dirname(parent)
-		)
-			owner ??= this.destinations.get(parent);
-		if (owner !== undefined)
-			throw new Error(
-				`Output collision: ${source} and ${owner} → ${relative}`,
-			);
-		this.destinations.set(dest, source);
-		for (
-			let parent = path.dirname(dest);
-			parent !== root;
-			parent = path.dirname(parent)
-		)
-			if (!this.directories.has(parent))
-				this.directories.set(parent, source);
-		ensureDir(path.dirname(dest));
-		return dest;
-	}
-}
-
 export function copyAssetsToOut(
 	srcDir: string,
 	outDir: string,
@@ -177,102 +100,49 @@ export function getBundleNames(metadata: Metadata | null): {
 }
 
 // Bundler
-export async function bundleToDir(
-	allFiles: string[],
-	srcDir: string,
-	targetFolder: string,
-	outDir: string,
-	metadata: Metadata | null,
-	replacements: Replacement[],
-	logFile: (action: string, name: string) => void,
+export interface BundleToDirOptions {
+	allFiles: string[];
+	srcDir: string;
+	targetFolder: string;
+	outDir: string;
+	metadata: Metadata | null;
+	replacements: Replacement[];
+	logFile: (action: string, name: string) => void;
+	isDev?: boolean;
+	outputs?: OutputRegistry;
+}
+
+export async function bundleToDir({
+	allFiles,
+	srcDir,
+	targetFolder,
+	outDir,
+	metadata,
+	replacements,
+	logFile,
 	isDev = false,
 	outputs = new OutputRegistry(outDir),
-): Promise<void> {
+}: BundleToDirOptions): Promise<void> {
 	const { js: jsName, css: cssName } = getBundleNames(metadata);
-	const policy = { srcDir, allowedFiles: allFiles };
-
-	const jsFiles: string[] = [];
-	const cssChunks: string[] = [];
-	const binJs: string[] = [];
-
-	for (const srcFile of allFiles) {
-		const ext = path.extname(srcFile).toLowerCase();
-
-		if (path.basename(srcFile) === "metadata.json") continue;
-		if (
-			path.dirname(path.resolve(srcFile)) === path.resolve(srcDir) &&
-			/^(icon|banner)$/i.test(path.basename(srcFile, ext)) &&
-			IMAGE_EXTS.includes(ext)
-		)
-			continue;
-		if (isTypeDeclaration(srcFile)) continue;
-
-		if (ext === ".bin") {
-			const mod = readBin(srcFile);
-			if (mod.css)
-				cssChunks.unshift(
-					applyReplacements(mod.css, replacements).trim(),
-				);
-			if (mod.js)
-				binJs.push(applyScriptReplacements(mod.js, replacements));
-			logFile("merge", path.relative(srcDir, srcFile));
-			continue;
-		}
-
-		if (isScriptFile(srcFile)) {
-			jsFiles.push(srcFile);
-			logFile("minify", path.relative(srcDir, srcFile) + " → " + jsName);
-		}
-
-		if (ext === ".css") {
-			let content = fs.readFileSync(srcFile, "utf8");
-			content = applyReplacements(content, replacements);
-			cssChunks.push((await minifyCSS(srcFile, content)).trim());
-			logFile("minify", path.relative(srcDir, srcFile) + " → " + cssName);
-		}
-
-		if (ext === ".scss") {
-			let content = fs.readFileSync(srcFile, "utf8");
-			content = applyReplacements(content, replacements);
-			cssChunks.push(
-				(await compileSCSS(srcFile, content, policy)).trim(),
-			);
-			logFile("minify", path.relative(srcDir, srcFile) + " → " + cssName);
-		}
-
-		if (IMAGE_EXTS.includes(ext)) {
-			const dest = outputs.claim(
-				relativeOutputPath(srcFile, srcDir, targetFolder),
-				srcFile,
-			);
-			ensureDir(path.dirname(dest));
-			fs.copyFileSync(srcFile, dest);
-			logFile("copy", path.relative(srcDir, srcFile));
-		} else if (
-			!isScriptFile(srcFile) &&
-			ext !== ".css" &&
-			ext !== ".scss"
-		) {
-			const rel = relativeOutputPath(srcFile, srcDir, targetFolder);
-			const dest = outputs.claim(rel, srcFile);
-			ensureDir(path.dirname(dest));
-			fs.copyFileSync(srcFile, dest);
-			logFile("copy", rel);
-		}
+	const { js, hasJsOutput, cssChunks, copyFiles } = await compileSources({
+		files: allFiles,
+		srcDir,
+		replacements,
+		logFile,
+		isDev,
+		jsName,
+		cssName,
+	});
+	for (const file of copyFiles) {
+		const relative = relativeOutputPath(file, srcDir, targetFolder);
+		fs.copyFileSync(file, outputs.claim(relative, file));
+		logFile("copy", relative);
 	}
-
-	if (jsFiles.length > 0 || binJs.length > 0) {
-		ensureDir(outDir);
-		const bundled =
-			(jsFiles.length > 0
-				? await bundleJS(jsFiles, replacements, isDev, policy)
-				: "") + binJs.join("");
-		fs.writeFileSync(outputs.claim(jsName, "JS bundle"), bundled, "utf8");
+	if (hasJsOutput) {
+		fs.writeFileSync(outputs.claim(jsName, "JS bundle"), js, "utf8");
 		logFile("write", jsName);
 	}
-
-	if (cssChunks.length > 0) {
-		ensureDir(outDir);
+	if (cssChunks.length) {
 		fs.writeFileSync(
 			outputs.claim(cssName, "CSS bundle"),
 			cssChunks.join(""),

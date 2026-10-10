@@ -3,100 +3,18 @@ import path from "path";
 import * as log from "./logger.js";
 import { loadConfig } from "./config.js";
 import { buildDevTarget } from "./builder.js";
+import { prompt } from "./prompt.js";
+import { TARGET_METADATA, isTarget, type Target } from "./targets.js";
 
-const TARGET_DISPLAY: Record<string, string> = {
-	nextmusic: "Next Music",
-	bin: "Module (.bin)",
-};
-
-function displayName(target: string): string {
-	return TARGET_DISPLAY[target] ?? target;
-}
-
-const RESET = "\x1b[0m";
-const BOLD = "\x1b[1m";
-const CYAN = "\x1b[36m";
-const CLEAR_LINE = "\x1b[2K\x1b[1G";
-
-function prompt(question: string, choices: string[]): Promise<string> {
-	if (!process.stdin.isTTY)
-		return Promise.reject(
-			new Error(
-				"Specify a dev target when stdin is not a terminal: nmtools dev nextmusic",
-			),
-		);
-	return new Promise((resolve) => {
-		let selected = 0;
-		let drawn = false;
-
-		function render(): void {
-			if (drawn) {
-				process.stdout.write(`\x1b[${choices.length}A`);
-			}
-			drawn = true;
-
-			for (let i = 0; i < choices.length; i++) {
-				const label = displayName(choices[i]);
-				if (i === selected) {
-					process.stdout.write(
-						`${CLEAR_LINE}  ${CYAN}> ${label}${RESET}\n`,
-					);
-				} else {
-					process.stdout.write(`${CLEAR_LINE}    ${label}\n`);
-				}
-			}
-		}
-
-		process.stdout.write(`\n  ${question}\n\n`);
-		render();
-
-		const stdin = process.stdin;
-		stdin.setRawMode(true);
-		stdin.resume();
-		stdin.setEncoding("utf8");
-
-		function cleanup(): void {
-			stdin.setRawMode(false);
-			stdin.pause();
-			stdin.removeListener("data", onData);
-		}
-
-		function onData(key: string): void {
-			if (key === "\u0003") {
-				cleanup();
-				process.stdout.write("\n");
-				process.exit(0);
-			}
-
-			if (key === "\r" || key === "\n") {
-				cleanup();
-				process.stdout.write("\n");
-				resolve(choices[selected]);
-				return;
-			}
-
-			if (key === "\x1b[A") {
-				selected = (selected - 1 + choices.length) % choices.length;
-				render();
-				return;
-			}
-
-			if (key === "\x1b[B") {
-				selected = (selected + 1) % choices.length;
-				render();
-				return;
-			}
-		}
-
-		stdin.on("data", onData);
-	});
+function displayName(target: Target): string {
+	return TARGET_METADATA[target].displayName;
 }
 
 export async function runDev(cliTarget?: string): Promise<void> {
 	const cwd = fs.realpathSync(process.cwd());
 	let config = loadConfig(cwd);
 	const available = config._targets.filter(
-		(target) => target === "nextmusic" || target === "bin",
+		(target) => TARGET_METADATA[target].dev,
 	);
 	if (!available.length)
 		throw new Error(
@@ -106,8 +24,8 @@ export async function runDev(cliTarget?: string): Promise<void> {
 		cliTarget?.toLowerCase() ??
 		(available.length === 1
 			? available[0]
-			: await prompt("Select build target:", available));
-	if (!available.some((value) => value === target))
+			: await prompt("Select build target:", available, displayName));
+	if (!isTarget(target) || !available.includes(target))
 		throw new Error(
 			`Dev target "${target}" is not enabled. Available: ${available.join(", ")}`,
 		);

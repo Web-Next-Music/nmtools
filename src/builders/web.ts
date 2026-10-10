@@ -1,24 +1,11 @@
 import fs from "fs";
 import path from "path";
 import * as log from "../logger.js";
-import {
-	ensureDir,
-	resolveArtifactName,
-	fileSize,
-	bundleJS,
-	minifyCSS,
-	compileSCSS,
-	readBin,
-	isScriptFile,
-	applyReplacements,
-	applyScriptReplacements,
-	parseBuildIgnore,
-} from "../utils.js";
-import {
-	createSourceIndex,
-	safeOutputPath,
-	type SourceIndex,
-} from "../src-resolver.js";
+import { ensureDir, fileSize } from "../utils.js";
+import { resolveArtifactName, safeOutputPath } from "../paths.js";
+import { parseBuildIgnore } from "../ignore.js";
+import { compileSources } from "../compile-sources.js";
+import { createSourceIndex, type SourceIndex } from "../src-resolver.js";
 import { generateEnvReplacements } from "../env.js";
 import type { Config, Replacement, TMUserScript } from "../types.js";
 
@@ -134,11 +121,7 @@ function buildWebReplacementMap(
 }
 
 function cssToJS(cssContent: string): string {
-	const escaped = cssContent
-		.replace(/\\/g, "\\\\")
-		.replace(/`/g, "\\`")
-		.replace(/\$/g, "\\$");
-	return `(function(){var s=document.createElement('style');s.textContent=\`${escaped}\`;document.head.appendChild(s)})();`;
+	return `(function(){var s=document.createElement('style');s.textContent=${JSON.stringify(cssContent)};document.head.appendChild(s)})();`;
 }
 
 function formatDirective(key: string, value: string): string {
@@ -164,10 +147,10 @@ function buildTMHeader(metadata: Config["_metadata"], config: Config): string {
 		metadata?.description ??
 		config.description ??
 		"") as string;
-	const author = (us.author ??
-		(Array.isArray(metadata?.author)
-			? metadata.author.join(", ")
-			: (metadata?.author ?? config.author ?? ""))) as string;
+	const authorValue = us.author ?? metadata?.author ?? config.author ?? "";
+	const author = Array.isArray(authorValue)
+		? authorValue.join(", ")
+		: authorValue;
 
 	const lines: string[] = ["// ==UserScript=="];
 
@@ -242,58 +225,19 @@ async function buildWebOnefile(config: Config): Promise<string> {
 	// Combine web replacements with env replacements
 	const replacements = [...webReplacements, ...envReplacements];
 
-	const shared = index.shared;
-	const targetSpecific = index.targets.web;
-	const allFiles = [...shared, ...targetSpecific];
-	const policy = { srcDir, allowedFiles: allFiles };
-
-	let cssBlock = "";
-
-	const jsFiles: string[] = [];
-	const cssFiles: string[] = [];
-	const binJs: string[] = [];
-
-	for (const f of allFiles) {
-		const ext = path.extname(f).toLowerCase();
-		if (isScriptFile(f)) {
-			jsFiles.push(f);
-			log.file("minify", path.relative(srcDir, f));
-		} else if (ext === ".css" || ext === ".scss") {
-			cssFiles.push(f);
-		} else if (ext === ".bin") {
-			const mod = readBin(f);
-			if (mod.css)
-				cssBlock =
-					cssToJS(applyReplacements(mod.css, replacements)).trim() +
-					cssBlock;
-			if (mod.js)
-				binJs.push(applyScriptReplacements(mod.js, replacements));
-			log.file("merge", path.relative(srcDir, f));
-		}
-	}
-
-	for (const f of cssFiles) {
-		const ext = path.extname(f).toLowerCase();
-		let content = fs.readFileSync(f, "utf8");
-		content = applyReplacements(content, replacements);
-		content =
-			ext === ".scss"
-				? await compileSCSS(f, content, policy)
-				: await minifyCSS(f, content);
-		cssBlock += cssToJS(content).trim();
-		log.file("minify", `${path.relative(srcDir, f)} → css-in-js`);
-	}
-
-	const jsBlock =
-		(jsFiles.length > 0
-			? (await bundleJS(jsFiles, replacements, false, policy)).trim()
-			: "") + binJs.join("");
+	const { js: jsBlock, cssChunks } = await compileSources({
+		files: [...index.shared, ...index.targets.web],
+		srcDir,
+		replacements,
+		logFile: log.file,
+		cssName: "css-in-js",
+	});
+	const cssBlock = cssChunks.map(cssToJS).join("");
 
 	const header = buildTMHeader(metadata, config);
 	const body = `${cssBlock}${jsBlock}`.trim();
 	const output = header + body + "\n";
 
-	ensureDir(path.join(cwd, "release"));
 	const rawArtifactName =
 		config.web?.userscript?.artifactName ??
 		onefileCfg?.artifactName ??
