@@ -1,27 +1,23 @@
 import fs from "fs";
 import path from "path";
+import { generateEnvReplacements } from "./env.js";
+import { parseBuildIgnore, shouldIgnore } from "./ignore.js";
 import * as log from "./logger.js";
 import {
-	ensureDir,
-	findImageFile,
-	parseBuildIgnore,
-	removeEmptyAssetsDir,
-} from "./utils.js";
-import {
-	collectSourceFiles,
-	copyAssetsToOut,
 	bundleToDir,
+	copyAssetsToOut,
+	createSourceIndex,
+	OutputRegistry,
 } from "./src-resolver.js";
-import { generateEnvReplacements } from "./env.js";
 import type { Config } from "./types.js";
+import { ensureDir, IMAGE_EXTS, removeEmptyAssetsDir } from "./utils.js";
 
-// Public API
 export interface BuildOptions {
 	targetFolder: string;
 	outDir: string;
 	silent?: boolean;
 	copyLicense?: boolean;
-	copyMetadata?: boolean;
+	copyPackage?: boolean;
 	isDev?: boolean;
 }
 
@@ -30,7 +26,6 @@ export async function buildToDir(
 	opts: BuildOptions,
 ): Promise<void> {
 	const srcDir = config._srcDir;
-	const metadata = config._metadata;
 	const webReplacements = config.web?.replaceLink ?? [];
 	const ignoreRules = parseBuildIgnore(config._buildIgnore);
 	const silent = opts.silent ?? false;
@@ -46,80 +41,70 @@ export async function buildToDir(
 
 	const logFile: (action: string, name: string) => void = silent
 		? noop
-		: (a, n) => log.file(a, n);
+		: (action, name) => log.file(action, name);
 	const logWarn: (msg: string) => void = silent ? noop : log.warn;
 
-	const { shared, targetSpecific, assets } = collectSourceFiles(
-		srcDir,
-		opts.targetFolder,
-		ignoreRules,
-	);
-	const allFiles = [...targetSpecific, ...shared];
-
+	const index = createSourceIndex(srcDir, ignoreRules);
+	const outputs = new OutputRegistry(opts.outDir);
+	const allFiles = [
+		...(index.targets[opts.targetFolder] ?? []),
+		...index.shared,
+	];
 	ensureDir(opts.outDir);
-
-	// Icon
 	const brandingDir = path.join(srcDir, "assets", "branding");
-	const iconFile =
-		findImageFile(brandingDir, "icon") ?? findImageFile(srcDir, "icon");
-	if (iconFile) {
-		const ext = path.extname(iconFile);
-		fs.copyFileSync(iconFile, path.join(opts.outDir, `icon${ext}`));
-		logFile("copy", `icon${ext}`);
-	} else {
-		logWarn("No icon image found in assets/branding/ or src/");
-	}
-
-	// Banner
-	const bannerFile =
-		findImageFile(brandingDir, "banner") ?? findImageFile(srcDir, "banner");
-	if (bannerFile) {
-		const ext = path.extname(bannerFile);
-		fs.copyFileSync(bannerFile, path.join(opts.outDir, `banner${ext}`));
-		logFile("copy", `banner${ext}`);
-	}
-
-	// metadata.json
-	if (opts.copyMetadata) {
-		const metaSrc = path.join(srcDir, "metadata.json");
-		if (fs.existsSync(metaSrc)) {
-			fs.copyFileSync(metaSrc, path.join(opts.outDir, "metadata.json"));
-			logFile("write", "metadata.json");
-		} else {
-			logWarn("metadata.json not found in src/");
+	const findImageFile = (dir: string, name: string): string | undefined =>
+		[...index.assets, ...index.shared].find(
+			(file) =>
+				path.resolve(path.dirname(file)) === path.resolve(dir) &&
+				path.basename(file, path.extname(file)) === name &&
+				IMAGE_EXTS.includes(path.extname(file).toLowerCase()),
+		);
+	for (const name of ["icon", "banner"]) {
+		const file =
+			findImageFile(brandingDir, name) ?? findImageFile(srcDir, name);
+		if (file) {
+			const destination = name + path.extname(file);
+			fs.copyFileSync(file, outputs.claim(destination, file));
+			logFile("copy", destination);
+		} else if (name === "icon") {
+			logWarn("No icon image found in assets/branding/ or src/");
 		}
 	}
 
-	// LICENSE
+	if (opts.copyPackage) {
+		const packageSrc = path.join(config._cwd, "package.json");
+		fs.copyFileSync(packageSrc, outputs.claim("package.json", packageSrc));
+		logFile("copy", "package.json");
+	}
+
 	if (opts.copyLicense) {
 		const licenseSrc = path.join(config._cwd, "LICENSE");
-		if (fs.existsSync(licenseSrc)) {
-			fs.copyFileSync(licenseSrc, path.join(opts.outDir, "LICENSE"));
+		if (
+			fs.existsSync(licenseSrc) &&
+			!shouldIgnore(licenseSrc, ignoreRules)
+		) {
+			fs.copyFileSync(licenseSrc, outputs.claim("LICENSE", licenseSrc));
 			logFile("copy", "LICENSE");
 		} else {
-			logWarn("LICENSE not found in project root");
+			logWarn("LICENSE not found or excluded by .buildignore");
 		}
 	}
 
-	// Assets
-	copyAssetsToOut(srcDir, opts.outDir, ignoreRules);
-	const outBranding = path.join(opts.outDir, "assets", "branding");
-	if (fs.existsSync(outBranding))
-		fs.rmSync(outBranding, { recursive: true, force: true });
-	if (assets.length > 0) logFile("copy", "assets/");
+	copyAssetsToOut(srcDir, opts.outDir, ignoreRules, index, outputs);
+	if (index.assets.length > 0) {
+		logFile("copy", "assets/");
+	}
 
-	// Bundle JS/CSS
-	await bundleToDir(
+	await bundleToDir({
 		allFiles,
 		srcDir,
-		opts.targetFolder,
-		opts.outDir,
-		metadata,
+		targetFolder: opts.targetFolder,
+		outDir: opts.outDir,
 		replacements,
 		logFile,
 		isDev,
-	);
+		outputs,
+	});
 
-	// Cleanup
 	removeEmptyAssetsDir(opts.outDir);
 }

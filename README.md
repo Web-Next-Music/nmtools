@@ -1,26 +1,25 @@
 ## Installation
 
 ```
-npm install --save-dev @diram1x/ymtm
+npm install --save-dev @web-next-music/nmtools
 ```
 
 ## Build Outputs
 
 | Client                                           | Build Command          | Formats         |
 | ------------------------------------------------ | ---------------------- | --------------- |
-| **[Next Music](https://nm.diram1x.ru/)**         | `ymtm build nextmusic` | `.tar.gz`       |
-| **[PulseSync](https://pulsesync.dev/)**          | `ymtm build pulsesync` | `.zip`, `.pext` |
-| **[Yandex Music Web](https://music.yandex.ru/)** | `ymtm build web`       | `.user.js`      |
-| **Module**                                       | `ymtm build bin`       | `.bin`          |
+| **[Next Music](https://nm.diram1x.ru/)**         | `nmtools build nextmusic` | `.tar.gz`       |
+| **[Yandex Music Web](https://music.yandex.ru/)** | `nmtools build web`       | `.user.js`      |
+| **Module**                                       | `nmtools build bin`       | `.bin`          |
 
 ### Naming
 
 ```id="b9r9fi"
-${theme.name}_${theme.version}_${build.package}.ext
+${addon.name}_${addon.version}_${build.package}.ext
 ```
 
-- `theme.name` - theme name
-- `theme.version` - version
+- `addon.name` - addon name
+- `addon.version` - version
 - `build.package` - target
 
 ### Web Features
@@ -34,10 +33,8 @@ ${theme.name}_${theme.version}_${build.package}.ext
 ### Output Example
 
 ```id="9rpqdb"
-dist/
+release/
 ├── Example-Theme_1.0.0_nm.tar.gz
-├── Example-Theme_1.0.0_ps.zip
-├── Example-Theme_1.0.0_ps.pext
 └── Example-Theme_1.0.0_web.user.js
 ```
 
@@ -46,41 +43,31 @@ dist/
 ```
 {
     "name": "example-theme",
-    "addonName" "Example Theme!",
+    "addonName": "Example Theme!",
     "version": "1.0.0",
     "description": "Example description",
     "author": "Your name",
     "license": "Your Project License",
     "scripts": {
-        "build": "ymtm build",
-        "build:nextmusic": "ymtm build nextmusic",
-        "build:pulsesync": "ymtm build pulsesync",
-        "build:web": "ymtm build web"
+        "build": "nmtools build",
+        "build:nextmusic": "nmtools build nextmusic",
+        "build:web": "nmtools build web"
     },
     "build": {
         "targets": [
             "nextmusic",
-            "pulsesync",
             "web"
         ]
     },
     "nextmusic": {
         "tarGz": {
-            "artifactName": "Example-Theme_${theme.version}_${build.package}.tar.gz"
-        }
-    },
-    "pulsesync": {
-        "zip": {
-            "artifactName": "Example-Theme_${theme.version}_${build.package}.zip"
-        },
-        "pext": {
-            "artifactName": "Example-Theme_${theme.version}_${build.package}.pext"
+            "artifactName": "Example-Theme_${addon.version}_${build.package}.tar.gz"
         }
     },
     "web": {
         "icon": "https://url/to/icon.ext",
         "userscript": {
-            "artifactName": "Example-Theme_${theme.version}_${build.package}.user.js"
+            "artifactName": "Example-Theme_${addon.version}_${build.package}.user.js"
         },
         "replaceLink": [
             {
@@ -93,7 +80,7 @@ dist/
         ]
     },
     "devDependencies": {
-        "@diram1x/ymtm": "^2.2.0"
+        "@web-next-music/nmtools": "^5.0.0"
     }
 }
 ```

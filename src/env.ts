@@ -1,32 +1,10 @@
+import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
 import type { Replacement } from "./types.js";
 
 export function parseEnvFile(content: string): Record<string, string> {
-	const env: Record<string, string> = {};
-
-	for (const line of content.split(/\r?\n/)) {
-		const trimmed = line.trim();
-
-		if (!trimmed || trimmed.startsWith("#")) continue;
-
-		const eqIndex = trimmed.indexOf("=");
-		if (eqIndex === -1) continue;
-
-		const key = trimmed.substring(0, eqIndex).trim();
-		let value = trimmed.substring(eqIndex + 1).trim();
-
-		if (
-			(value.startsWith('"') && value.endsWith('"')) ||
-			(value.startsWith("'") && value.endsWith("'"))
-		) {
-			value = value.slice(1, -1);
-		}
-
-		env[key] = value;
-	}
-
-	return env;
+	return dotenv.parse(content);
 }
 
 export function loadEnvFile(cwd: string): Record<string, string> {
@@ -77,7 +55,7 @@ export function generateEnvReplacements(
 ): Replacement[] {
 	const filteredEnv = isDev
 		? envFileContent
-		: filterEnvByPrefix(envFileContent, "YMTM_PUBLIC_");
+		: filterEnvByPrefix(envFileContent, "NMTOOLS_PUBLIC_");
 
 	const resolvedEnv = {
 		...process.env,
@@ -87,17 +65,20 @@ export function generateEnvReplacements(
 	const replacements: Replacement[] = [];
 
 	for (const [key, value] of Object.entries(filteredEnv)) {
+		if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+			continue;
+		}
 		const templateReplacement = resolveEnvReferences(
-			`$\{process\.env\.${key}\}`,
+			`\${process.env.${key}}`,
 			resolvedEnv,
 		);
 		replacements.push({
-			from: `$\{process\.env\.${key}\}`,
+			from: `\${process.env.${key}}`,
 			to: templateReplacement,
 		});
 
 		replacements.push({
-			from: `process\.env\.${key}`,
+			from: `process.env.${key}`,
 			to: JSON.stringify(value),
 		});
 	}

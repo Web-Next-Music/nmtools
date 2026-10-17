@@ -1,268 +1,159 @@
 import fs from "fs";
 import path from "path";
-import {
-	ensureDir,
-	copyRecursive,
-	shouldIgnore,
-	IMAGE_EXTS,
-	bundleJS,
-	compileSCSS,
-	minifyCSS,
-	applyReplacements,
-	readBin,
-	isScriptFile,
-	isTypeDeclaration,
-} from "./utils.js";
-import type { Metadata, Replacement } from "./types.js";
+import { OutputRegistry, safeOutputPath } from "./paths.js";
 
-export const TARGET_FOLDERS = new Set(["ps", "nm", "web"]);
+export { OutputRegistry, safeOutputPath } from "./paths.js";
+
+import { compileSources } from "./compile-sources.js";
+import { shouldIgnore } from "./ignore.js";
+import { TARGET_METADATA } from "./targets.js";
+import type { Replacement } from "./types.js";
+
+export const TARGET_FOLDERS = new Set<string>(
+	Object.values(TARGET_METADATA)
+		.map((target) => target.sourceFolder)
+		.filter((folder) => folder !== null),
+);
 
 const IGNORED_DIRS = new Set(["node_modules", ".git"]);
 
-// Source collection
-export function findDirsNamed(
-	root: string,
-	name: string,
-	ignoreRules: string[] = [],
-): string[] {
-	const found: string[] = [];
-	if (!fs.existsSync(root)) return found;
-
-	function walk(dir: string): void {
-		let entries: fs.Dirent[];
-		try {
-			entries = fs.readdirSync(dir, { withFileTypes: true });
-		} catch {
-			return;
-		}
-		for (const entry of entries) {
-			if (!entry.isDirectory()) continue;
-			if (IGNORED_DIRS.has(entry.name)) continue;
-			const full = path.join(dir, entry.name);
-			if (shouldIgnore(full, ignoreRules)) continue;
-			if (entry.name === name) {
-				found.push(full);
-				continue;
-			}
-			walk(full);
-		}
-	}
-
-	walk(root);
-	return found;
+export interface SourceIndex {
+	shared: string[];
+	targets: Record<string, string[]>;
+	assets: string[];
+	assetPaths: Map<string, string>;
+	targetDirs: string[];
 }
 
-function findAssetsDirs(root: string, ignoreRules: string[] = []): string[] {
-	const found: string[] = [];
-	if (!fs.existsSync(root)) return found;
-
-	function walk(dir: string): void {
-		let entries: fs.Dirent[];
-		try {
-			entries = fs.readdirSync(dir, { withFileTypes: true });
-		} catch {
-			return;
-		}
-		for (const entry of entries) {
-			if (!entry.isDirectory()) continue;
-			if (IGNORED_DIRS.has(entry.name)) continue;
-			const full = path.join(dir, entry.name);
-			if (shouldIgnore(full, ignoreRules)) continue;
-			if (entry.name === "assets") {
-				found.push(full);
-				continue;
-			}
-			if (TARGET_FOLDERS.has(entry.name)) continue;
-			walk(full);
-		}
-	}
-
-	walk(root);
-	return found;
-}
-
-export function collectSourceFiles(
+// A reserved directory establishes a boundary; nested reserved directories never
+// leak back into shared sources or into a different target.
+export function createSourceIndex(
 	srcDir: string,
-	targetFolder: string,
 	ignoreRules: string[] = [],
-): { shared: string[]; targetSpecific: string[]; assets: string[] } {
-	const shared: string[] = [];
-	const targetSpecific: string[] = [];
-	const assets: string[] = [];
-
-	if (!fs.existsSync(srcDir)) return { shared, targetSpecific, assets };
-
-	const targetDirs = findDirsNamed(srcDir, targetFolder, ignoreRules);
-	const assetsDirs = findAssetsDirs(srcDir, ignoreRules);
-
-	const otherTargetDirs = [...TARGET_FOLDERS]
-		.filter((f) => f !== targetFolder)
-		.flatMap((f) => findDirsNamed(srcDir, f, ignoreRules));
-
-	const skipPrefixes = new Set([
-		...targetDirs,
-		...assetsDirs,
-		...otherTargetDirs,
-	]);
-
-	collectShared(srcDir, shared, ignoreRules, skipPrefixes);
-	for (const dir of targetDirs) collectAll(dir, targetSpecific, ignoreRules);
-	for (const dir of assetsDirs) collectAll(dir, assets, ignoreRules);
-
-	return { shared, targetSpecific, assets };
-}
-
-function collectShared(
-	dir: string,
-	result: string[],
-	ignoreRules: string[],
-	skipPrefixes: Set<string>,
-): void {
-	if (!fs.existsSync(dir)) return;
-	const entries = fs
-		.readdirSync(dir, { withFileTypes: true })
-		.sort((a, b) => a.name.localeCompare(b.name));
-
-	for (const entry of entries) {
-		const full = path.join(dir, entry.name);
-		if (shouldIgnore(full, ignoreRules)) continue;
-
-		if (entry.isDirectory()) {
-			if (skipPrefixes.has(full)) continue;
-			if (IGNORED_DIRS.has(entry.name)) continue;
-			collectShared(full, result, ignoreRules, skipPrefixes);
-		} else {
-			result.push(full);
+): SourceIndex {
+	const index: SourceIndex = {
+		shared: [],
+		targets: Object.fromEntries(
+			[...TARGET_FOLDERS].map((folder) => [folder, [] as string[]]),
+		),
+		assets: [],
+		assetPaths: new Map(),
+		targetDirs: [],
+	};
+	function walk(dir: string, scope = "shared", assetRoot = ""): void {
+		if (!fs.existsSync(dir)) {
+			return;
+		}
+		for (const entry of fs
+			.readdirSync(dir, { withFileTypes: true })
+			.sort((left, right) => left.name.localeCompare(right.name))) {
+			const full = path.join(dir, entry.name);
+			if (shouldIgnore(full, ignoreRules)) {
+				continue;
+			}
+			if (entry.isDirectory()) {
+				if (IGNORED_DIRS.has(entry.name)) {
+					continue;
+				}
+				if (scope === "assets") {
+					walk(full, scope, assetRoot);
+					continue;
+				}
+				if (TARGET_FOLDERS.has(entry.name)) {
+					index.targetDirs.push(full);
+					if (scope === "shared") {
+						walk(full, entry.name);
+					}
+					continue;
+				}
+				if (entry.name === "assets") {
+					if (scope === "shared") {
+						walk(full, "assets", full);
+					}
+					continue;
+				}
+				walk(full, scope, assetRoot);
+			} else if (entry.isFile()) {
+				if (scope === "assets") {
+					index.assets.push(full);
+					index.assetPaths.set(full, path.relative(assetRoot, full));
+				} else if (scope === "shared") {
+					index.shared.push(full);
+				} else {
+					index.targets[scope].push(full);
+				}
+			}
 		}
 	}
+	walk(srcDir);
+	return index;
 }
 
-function collectAll(
-	dir: string,
-	result: string[],
-	ignoreRules: string[],
-): void {
-	if (!fs.existsSync(dir)) return;
-	const entries = fs
-		.readdirSync(dir, { withFileTypes: true })
-		.sort((a, b) => a.name.localeCompare(b.name));
-	for (const entry of entries) {
-		if (entry.isDirectory() && IGNORED_DIRS.has(entry.name)) continue;
-		const full = path.join(dir, entry.name);
-		if (shouldIgnore(full, ignoreRules)) continue;
-		if (entry.isDirectory()) collectAll(full, result, ignoreRules);
-		else result.push(full);
-	}
-}
-
-// Asset copy
 export function copyAssetsToOut(
 	srcDir: string,
 	outDir: string,
 	ignoreRules: string[] = [],
+	index = createSourceIndex(srcDir, ignoreRules),
+	outputs = new OutputRegistry(outDir),
 ): void {
-	const assetsDirs = findAssetsDirs(srcDir, ignoreRules);
-	for (const assetsDir of assetsDirs) {
-		copyRecursive(assetsDir, path.join(outDir, "assets"), ignoreRules);
-	}
-}
-
-// Bundle name resolution
-export function getBundleNames(metadata: Metadata | null): {
-	js: string;
-	css: string;
-} {
-	return {
-		js: metadata?.script ?? "script.js",
-		css: metadata?.css ?? "style.css",
-	};
-}
-
-// Bundler
-export async function bundleToDir(
-	allFiles: string[],
-	srcDir: string,
-	targetFolder: string,
-	outDir: string,
-	metadata: Metadata | null,
-	replacements: Replacement[],
-	logFile: (action: string, name: string) => void,
-	isDev = false,
-): Promise<void> {
-	const { js: jsName, css: cssName } = getBundleNames(metadata);
-
-	const jsFiles: string[] = [];
-	const cssChunks: string[] = [];
-	const binJs: string[] = [];
-
-	for (const srcFile of allFiles) {
-		const ext = path.extname(srcFile).toLowerCase();
-		const base = path.basename(srcFile, ext);
-
-		if (path.basename(srcFile) === "metadata.json") continue;
-		if (srcFile.split(/[\\/]/).includes("assets")) continue;
-		if (base === "icon" && IMAGE_EXTS.includes(ext)) continue;
-		if (isTypeDeclaration(srcFile)) continue;
-
-		if (ext === ".bin") {
-			const mod = readBin(srcFile);
-			if (mod.css) cssChunks.unshift(mod.css.trim());
-			if (mod.js) binJs.push(mod.js);
-			logFile("merge", path.relative(srcDir, srcFile));
+	for (const file of index.assets) {
+		const relative = index.assetPaths.get(file);
+		if (relative === undefined) {
+			throw new Error(`Missing indexed asset path: ${file}`);
+		}
+		if (relative.replace(/\\/g, "/").startsWith("branding/")) {
 			continue;
 		}
-
-		if (isScriptFile(srcFile)) {
-			jsFiles.push(srcFile);
-			logFile("minify", path.relative(srcDir, srcFile) + " → " + jsName);
-		}
-
-		if (ext === ".css") {
-			let content = fs.readFileSync(srcFile, "utf8");
-			content = applyReplacements(content, replacements);
-			cssChunks.push((await minifyCSS(srcFile, content)).trim());
-			logFile("minify", path.relative(srcDir, srcFile) + " → " + cssName);
-		}
-
-		if (ext === ".scss") {
-			let content = fs.readFileSync(srcFile, "utf8");
-			content = applyReplacements(content, replacements);
-			cssChunks.push((await compileSCSS(srcFile, content)).trim());
-			logFile("minify", path.relative(srcDir, srcFile) + " → " + cssName);
-		}
-
-		if (IMAGE_EXTS.includes(ext)) {
-			const dest = path.join(outDir, path.basename(srcFile));
-			ensureDir(path.dirname(dest));
-			fs.copyFileSync(srcFile, dest);
-			logFile("copy", path.relative(srcDir, srcFile));
-		} else if (
-			!isScriptFile(srcFile) &&
-			ext !== ".css" &&
-			ext !== ".scss"
-		) {
-			const rel = relativeOutputPath(srcFile, srcDir, targetFolder);
-			const dest = path.join(outDir, rel);
-			ensureDir(path.dirname(dest));
-			fs.copyFileSync(srcFile, dest);
-			logFile("copy", rel);
-		}
+		fs.copyFileSync(file, outputs.claim("assets/" + relative, file));
 	}
+}
 
-	if (jsFiles.length > 0 || binJs.length > 0) {
-		ensureDir(outDir);
-		const bundled =
-			(jsFiles.length > 0
-				? await bundleJS(jsFiles, replacements, isDev)
-				: "") + binJs.join("");
-		fs.writeFileSync(path.join(outDir, jsName), bundled, "utf8");
+export interface BundleToDirOptions {
+	allFiles: string[];
+	srcDir: string;
+	targetFolder: string;
+	outDir: string;
+	jsName?: string;
+	cssName?: string;
+	replacements: Replacement[];
+	logFile: (action: string, name: string) => void;
+	isDev?: boolean;
+	outputs?: OutputRegistry;
+}
+
+export async function bundleToDir({
+	allFiles,
+	srcDir,
+	targetFolder,
+	outDir,
+	jsName = "script.js",
+	cssName = "style.css",
+	replacements,
+	logFile,
+	isDev = false,
+	outputs = new OutputRegistry(outDir),
+}: BundleToDirOptions): Promise<void> {
+	const { js, hasJsOutput, cssChunks, copyFiles } = await compileSources({
+		files: allFiles,
+		srcDir,
+		replacements,
+		logFile,
+		isDev,
+		jsName,
+		cssName,
+	});
+	for (const file of copyFiles) {
+		const relative = relativeOutputPath(file, srcDir, targetFolder);
+		fs.copyFileSync(file, outputs.claim(relative, file));
+		logFile("copy", relative);
+	}
+	if (hasJsOutput) {
+		fs.writeFileSync(outputs.claim(jsName, "JS bundle"), js, "utf8");
 		logFile("write", jsName);
 	}
-
-	if (cssChunks.length > 0) {
-		ensureDir(outDir);
+	if (cssChunks.length) {
 		fs.writeFileSync(
-			path.join(outDir, cssName),
+			outputs.claim(cssName, "CSS bundle"),
 			cssChunks.join(""),
 			"utf8",
 		);
@@ -270,16 +161,20 @@ export async function bundleToDir(
 	}
 }
 
-// Helpers
 export function relativeOutputPath(
 	filePath: string,
 	srcDir: string,
 	targetFolder: string,
 ): string {
-	const parts = filePath.replace(/\\/g, "/").split("/");
-	const tIdx = parts.lastIndexOf(targetFolder);
-	if (tIdx !== -1) {
-		return parts.slice(tIdx + 1).join("/");
+	const relative = path.relative(
+		path.resolve(srcDir),
+		path.resolve(filePath),
+	);
+	safeOutputPath(srcDir, relative);
+	const parts = relative.split(path.sep);
+	const targetIndex = parts.indexOf(targetFolder);
+	if (TARGET_FOLDERS.has(targetFolder) && targetIndex !== -1) {
+		parts.splice(targetIndex, 1);
 	}
-	return path.relative(srcDir, filePath);
+	return parts.join(path.sep);
 }

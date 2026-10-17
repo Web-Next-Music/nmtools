@@ -1,56 +1,44 @@
 import fs from "fs";
-import path from "path";
 import { createRequire } from "module";
+import path from "path";
+import {
+	objectSchema,
+	parse,
+	readProject,
+	resolvePackage,
+	resolveSourceDirectory,
+	resolveTargets,
+	validateTargetOptions,
+} from "./config-validation.js";
 import { loadEnvFile } from "./env.js";
-import type { Config } from "./types.js";
+import type { Config, ProjectConfig } from "./types.js";
 
-const _require = createRequire(import.meta.url);
+const require = createRequire(import.meta.url);
+
+function readBuildIgnore(cwd: string): string {
+	const ignorePath = path.join(cwd, ".buildignore");
+	return fs.existsSync(ignorePath) ? fs.readFileSync(ignorePath, "utf8") : "";
+}
 
 export function loadConfig(cwd = process.cwd()): Config {
-	const pkgPath = path.join(cwd, "package.json");
-	if (!fs.existsSync(pkgPath))
-		throw new Error(`package.json not found in ${cwd}`);
+	const projectDirectory = fs.realpathSync(path.resolve(cwd));
+	const raw = readProject(projectDirectory);
+	const build = parse(objectSchema("build"), raw.build);
+	const targets = resolveTargets(build);
+	const sourceDirectory = resolveSourceDirectory(projectDirectory, build);
+	const { addonName, version } = resolvePackage(raw);
+	validateTargetOptions(raw, { addonName, version });
+	const project = { ...raw, build } as ProjectConfig;
 
-	const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as Config;
-	if (!pkg.build) throw new Error('"build" is required in package.json');
-
-	// Normalise targets list
-	const rawTargets = pkg.build.targets ?? pkg.build.package ?? [];
-	pkg._targets = rawTargets.map((t) => t.toLowerCase());
-
-	pkg._cwd = cwd;
-
-	// Load .env file
-	pkg._env = loadEnvFile(cwd);
-
-	// ymtm version
-	const selfPkg = _require("../package.json") as { version?: string };
-	pkg._version = selfPkg.version || "Unknown";
-
-	// Source directory
-	const srcRelative = pkg.build?.src ?? "src";
-	pkg._srcDir = path.join(cwd, srcRelative);
-
-	// metadata.json
-	let metadata = null;
-	const metaPath = path.join(pkg._srcDir, "metadata.json");
-	if (fs.existsSync(metaPath))
-		metadata = JSON.parse(fs.readFileSync(metaPath, "utf8"));
-
-	pkg.addonName = metadata?.name ?? pkg.addonName;
-	pkg.version = metadata?.version ?? pkg.version;
-	pkg._metadata = metadata;
-
-	if (!pkg.addonName)
-		throw new Error(
-			'"addonName" is required (in package.json or src/metadata.json)',
-		);
-
-	// .buildignore
-	const ignorePath = path.join(cwd, ".buildignore");
-	pkg._buildIgnore = fs.existsSync(ignorePath)
-		? fs.readFileSync(ignorePath, "utf8")
-		: "";
-
-	return pkg;
+	return {
+		...project,
+		addonName,
+		version,
+		_targets: targets,
+		_cwd: projectDirectory,
+		_env: loadEnvFile(projectDirectory),
+		_version: (require("../package.json") as { version: string }).version,
+		_srcDir: sourceDirectory,
+		_buildIgnore: readBuildIgnore(projectDirectory),
+	};
 }

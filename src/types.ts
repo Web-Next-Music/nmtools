@@ -1,12 +1,6 @@
-export interface Metadata {
-	name?: string;
-	version?: string;
-	description?: string;
-	author?: string | string[];
-	type?: string;
-	css?: string;
-	script?: string;
-}
+import type { Target } from "./targets.js";
+
+export type { Target } from "./targets.js";
 
 export interface Replacement {
 	from: string;
@@ -35,23 +29,20 @@ export interface TMUserScript {
 	[key: string]: string | string[] | boolean | undefined;
 }
 
-export interface Config {
-	name: string;
-	version: string;
-	addonName: string;
-	description?: string;
-	author?: string;
+export interface ProjectConfig {
+	name?: string;
+	version?: string;
+	addonName?: string;
+	description?: string | string[];
+	author?: string | string[];
 	build: {
 		src?: string;
 		targets?: string[];
+		/** @deprecated Use targets instead. */
 		package?: string[];
 	};
 	nextmusic?: {
 		tarGz?: { artifactName: string };
-	};
-	pulsesync?: {
-		zip?: { artifactName: string };
-		pext?: { artifactName: string };
 	};
 	web?: {
 		/** @deprecated Use `userscript` section instead */
@@ -63,12 +54,18 @@ export interface Config {
 	bin?: {
 		artifactName?: string;
 	};
+}
+
+export interface Config extends ProjectConfig {
+	version: string;
+	addonName: string;
 	// Internal fields added by loadConfig
-	_targets: string[];
+	_targets: Target[] & {
+		includes(searchElement: string, fromIndex?: number): boolean;
+	};
 	_cwd: string;
 	_version: string;
 	_srcDir: string;
-	_metadata: Metadata | null;
 	_buildIgnore: string;
 	_env: Record<string, string>;
 }
@@ -85,10 +82,4 @@ export interface TarEntry {
 	name: string;
 	stat: Stats;
 	type: "0" | "5";
-}
-
-export interface ZipFileEntry {
-	disk: string | null;
-	name: string;
-	stat: Stats;
 }
