@@ -1,13 +1,13 @@
 import path from "path";
-import * as log from "../logger.js";
-import { fileSize } from "../utils.js";
-import { resolveArtifactName, safeOutputPath } from "../paths.js";
-import { parseBuildIgnore } from "../ignore.js";
 import { writeBin } from "../bin-format.js";
 import { compileSources } from "../compile-sources.js";
-import { createSourceIndex } from "../src-resolver.js";
 import { generateEnvReplacements } from "../env.js";
+import { parseBuildIgnore } from "../ignore.js";
+import * as log from "../logger.js";
+import { resolveArtifactName, safeOutputPath } from "../paths.js";
+import { createSourceIndex } from "../src-resolver.js";
 import type { Config } from "../types.js";
+import { fileSize } from "../utils.js";
 
 async function bundleBin(
 	config: Config,
@@ -17,7 +17,7 @@ async function bundleBin(
 	const ignoreRules = parseBuildIgnore(config._buildIgnore);
 	const logFile: (action: string, name: string) => void = opts.silent
 		? () => {}
-		: (a, n) => log.file(a, n);
+		: (action, name) => log.file(action, name);
 
 	const index = createSourceIndex(srcDir, ignoreRules);
 	if (index.targetDirs.length > 0) {
@@ -48,7 +48,6 @@ async function bundleBin(
 	writeBin(opts.outPath, { css: cssOut, js: jsOut });
 }
 
-// Production build
 export async function buildBin(config: Config): Promise<void> {
 	const cwd = config._cwd;
 	const name = config.addonName;
@@ -74,7 +73,6 @@ export async function buildBin(config: Config): Promise<void> {
 	log.done("bin", artifactName);
 }
 
-// Dev build
 export async function buildBinDev(config: Config): Promise<void> {
 	const artifactName = resolveArtifactName(
 		config.bin?.artifactName ?? "${addon.name}_${addon.version}.bin",

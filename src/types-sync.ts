@@ -26,7 +26,9 @@ export function findNextMusicTypings(): string | null {
 	for (const root of appDataRoots()) {
 		for (const appDir of APP_DIR_NAMES) {
 			const candidate = path.join(root, appDir, "Addons", TYPINGS_FILE);
-			if (fs.existsSync(candidate)) return candidate;
+			if (fs.existsSync(candidate)) {
+				return candidate;
+			}
 		}
 	}
 	return null;
@@ -50,7 +52,9 @@ export function syncTypes(cwd = process.cwd(), silent = false): boolean {
 	fs.mkdirSync(targetDir, { recursive: true });
 	fs.copyFileSync(source, target);
 
-	if (!silent) log.file("write", path.join("types", TYPINGS_FILE));
+	if (!silent) {
+		log.file("write", path.join("types", TYPINGS_FILE));
+	}
 	return true;
 }
 

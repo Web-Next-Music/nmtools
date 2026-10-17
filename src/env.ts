@@ -1,6 +1,6 @@
+import dotenv from "dotenv";
 import fs from "fs";
 import path from "path";
-import dotenv from "dotenv";
 import type { Replacement } from "./types.js";
 
 export function parseEnvFile(content: string): Record<string, string> {
@@ -65,7 +65,9 @@ export function generateEnvReplacements(
 	const replacements: Replacement[] = [];
 
 	for (const [key, value] of Object.entries(filteredEnv)) {
-		if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) continue;
+		if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+			continue;
+		}
 		const templateReplacement = resolveEnvReferences(
 			`\${process.env.${key}}`,
 			resolvedEnv,

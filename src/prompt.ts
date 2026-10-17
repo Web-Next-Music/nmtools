@@ -5,10 +5,11 @@ export async function prompt<T extends string>(
 	choices: readonly T[],
 	displayName: (choice: T) => string = (choice) => choice,
 ): Promise<T> {
-	if (!process.stdin.isTTY)
+	if (!process.stdin.isTTY) {
 		throw new Error(
 			"Specify a dev target when stdin is not a terminal: nmtools dev nextmusic",
 		);
+	}
 
 	const selected = await select({
 		message: question,
@@ -17,6 +18,8 @@ export async function prompt<T extends string>(
 			label: displayName(choice),
 		})),
 	});
-	if (isCancel(selected)) throw new Error("Selection cancelled");
+	if (isCancel(selected)) {
+		throw new Error("Selection cancelled");
+	}
 	return choices[selected];
 }

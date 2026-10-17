@@ -1,10 +1,9 @@
+import { buildBin, buildBinDev } from "./builders/bin.js";
 import { buildNextMusic, buildNextMusicDev } from "./builders/nextmusic.js";
 import { buildWeb } from "./builders/web.js";
-import { buildBin, buildBinDev } from "./builders/bin.js";
+import { isTarget, TARGET_METADATA, TARGETS } from "./targets.js";
 import type { Config, Target } from "./types.js";
-import { isTarget, TARGETS, TARGET_METADATA } from "./targets.js";
 
-// Builder registry
 const BUILDERS: Record<Target, (config: Config) => Promise<void>> = {
 	nextmusic: buildNextMusic,
 	web: buildWeb,
@@ -20,21 +19,25 @@ const DEV_BUILDERS: Record<DevTarget, (config: Config) => Promise<void>> = {
 	bin: buildBinDev,
 };
 
-// Production build
 export async function buildAll(config: Config): Promise<void> {
 	const targets = config._targets ?? [];
 	if (targets.length === 0) {
 		throw new Error("No targets defined in build.targets");
 	}
-	for (const t of targets) await buildPackage(config, t);
+	for (const target of targets) {
+		await buildPackage(config, target);
+	}
 }
 
-export async function buildPackage(config: Config, pkg: string): Promise<void> {
-	const key = pkg.toLowerCase();
+export async function buildPackage(
+	config: Config,
+	packageName: string,
+): Promise<void> {
+	const key = packageName.toLowerCase();
 	const builder = isTarget(key) ? BUILDERS[key] : undefined;
 	if (!builder) {
 		throw new Error(
-			`Unknown target: "${pkg}". Available: ${TARGETS.join(", ")}`,
+			`Unknown target: "${packageName}". Available: ${TARGETS.join(", ")}`,
 		);
 	}
 	await builder(config);
@@ -44,7 +47,6 @@ function isDevTarget(value: string): value is DevTarget {
 	return isTarget(value) && TARGET_METADATA[value].dev;
 }
 
-// Dev build
 export async function buildDevTarget(
 	config: Config,
 	target: string,

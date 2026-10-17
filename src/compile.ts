@@ -1,13 +1,13 @@
 import fs from "fs";
+import { createRequire } from "module";
 import path from "path";
-import { pathToFileURL, fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 import {
+	cacheStyle,
 	contentHash,
 	getCachedStyle,
-	cacheStyle,
 	type StyleCacheEntry,
 } from "./style-cache.js";
-import { createRequire } from "module";
 import type { Replacement } from "./types.js";
 
 const _require = createRequire(import.meta.url);
@@ -71,7 +71,7 @@ async function bunBuildText(
 	if (!result.success) {
 		throw new Error(
 			"Bun.build failed:\n" +
-				result.logs.map((l) => String(l)).join("\n"),
+				result.logs.map((logEntry) => String(logEntry)).join("\n"),
 		);
 	}
 	return (await result.outputs[0].text()).trim();
@@ -83,7 +83,9 @@ export type SourcePolicy = {
 };
 
 function createSourceGuard(policy?: SourcePolicy): (file: string) => void {
-	if (!policy) return () => {};
+	if (!policy) {
+		return () => {};
+	}
 	const root = path.resolve(policy.srcDir);
 	const realRoot = fs.realpathSync(root);
 	const allowed = new Set(
@@ -109,10 +111,15 @@ function createSourceGuard(policy?: SourcePolicy): (file: string) => void {
 	return (file) => {
 		const absolute = path.resolve(file);
 		const real = fs.realpathSync(absolute);
-		if (
-			(withinSource(root, absolute) && !allowed.has(absolute)) ||
-			(withinSource(realRoot, real) && !realAllowed.has(real))
-		) {
+		const resolvesInsideLogicalRoot = withinSource(root, absolute);
+		const resolvesInsidePhysicalRoot = withinSource(realRoot, real);
+		const isDeclaredLogicalFile = allowed.has(absolute);
+		const isDeclaredPhysicalFile = realAllowed.has(real);
+		const isDenied =
+			(resolvesInsideLogicalRoot && !isDeclaredLogicalFile) ||
+			(resolvesInsidePhysicalRoot && !isDeclaredPhysicalFile);
+
+		if (isDenied) {
 			throw new Error(`Source policy denied import: ${absolute}`);
 		}
 	};
@@ -122,7 +129,9 @@ function splitScriptReplacements(replacements: Replacement[]) {
 	const define: Record<string, string> = {};
 	const textReplacements: Replacement[] = [];
 	for (const replacement of replacements) {
-		if (replacement.to === undefined) continue;
+		if (replacement.to === undefined) {
+			continue;
+		}
 		if (/^process\.env\.[A-Za-z_$][A-Za-z0-9_$]*$/.test(replacement.from)) {
 			define[replacement.from] = replacement.to;
 		} else {
@@ -138,7 +147,9 @@ export function applyScriptReplacements(
 ): string {
 	const { define, textReplacements } = splitScriptReplacements(replacements);
 	const code = applyReplacements(content, textReplacements);
-	if (!Object.keys(define).length) return code;
+	if (!Object.keys(define).length) {
+		return code;
+	}
 	return new Bun.Transpiler({ loader: "js", define }).transformSync(code);
 }
 
@@ -168,7 +179,9 @@ export async function compileSCSS(
 		!/@(?:use|forward|import)\b/i.test(code) && !code.includes("\\");
 	if (cacheable) {
 		const cached = getCachedStyle(key);
-		if (cached !== undefined) return cached;
+		if (cached !== undefined) {
+			return cached;
+		}
 	}
 	const result =
 		content !== undefined
@@ -179,10 +192,11 @@ export async function compileSCSS(
 			: sass.compile(absoluteSrc, { style: "compressed" });
 	if (policy) {
 		for (const url of result.loadedUrls as URL[]) {
-			if (url.protocol !== "file:")
+			if (url.protocol !== "file:") {
 				throw new Error(
 					`Source policy cannot validate SCSS dependency: ${url}`,
 				);
+			}
 			checkSource(fileURLToPath(url));
 		}
 	}
@@ -191,7 +205,9 @@ export async function compileSCSS(
 		try {
 			const dependencies: StyleCacheEntry["dependencies"] = [];
 			for (const url of result.loadedUrls as URL[]) {
-				if (url.protocol !== "file:") return css;
+				if (url.protocol !== "file:") {
+					return css;
+				}
 				const file = fileURLToPath(url);
 				dependencies.push({
 					file,
@@ -216,7 +232,9 @@ export async function minifyCSS(
 		JSON.stringify(["css", absoluteSrc, code, true, ["*"], Bun.version]),
 	);
 	const cached = getCachedStyle(key);
-	if (cached !== undefined) return cached;
+	if (cached !== undefined) {
+		return cached;
+	}
 	const css = await bunBuildText(
 		await runBunBuild({
 			entrypoints: [absoluteSrc],
@@ -227,8 +245,9 @@ export async function minifyCSS(
 					name: "nmtools-css-content",
 					setup(build) {
 						build.onLoad({ filter: /./ }, (args) => {
-							if (args.path === absoluteSrc)
+							if (args.path === absoluteSrc) {
 								return { contents: code, loader: "css" };
+							}
 						});
 					},
 				},
@@ -245,15 +264,19 @@ export async function bundleJS(
 	isDev = false,
 	policy?: SourcePolicy,
 ): Promise<string> {
-	if (files.length === 0) return "";
+	if (files.length === 0) {
+		return "";
+	}
 
 	const checkSource = createSourceGuard(policy);
-	for (const file of files) checkSource(file);
+	for (const file of files) {
+		checkSource(file);
+	}
 	const { define, textReplacements } = splitScriptReplacements(replacements);
 
 	return withTmpDir(async (root) => {
 		const entryContents = files
-			.map((f) => `import ${JSON.stringify(path.resolve(f))};`)
+			.map((file) => `import ${JSON.stringify(path.resolve(file))};`)
 			.join("\n");
 		const entryFile = path.join(root, "__nmtools_entry.js");
 		fs.writeFileSync(entryFile, entryContents, "utf8");
@@ -270,10 +293,15 @@ export async function bundleJS(
 						name: "nmtools-source-replacements",
 						setup(build) {
 							build.onLoad({ filter: /./ }, async (args) => {
-								if (args.path === entryFile) return;
-								checkSource(args.path);
-								if (!/\.(?:[cm]?[jt]s|[jt]sx)$/.test(args.path))
+								if (args.path === entryFile) {
 									return;
+								}
+								checkSource(args.path);
+								if (
+									!/\.(?:[cm]?[jt]s|[jt]sx)$/.test(args.path)
+								) {
+									return;
+								}
 								const ext = path.extname(args.path).slice(1);
 								const loader =
 									ext === "jsx" || ext === "tsx"
@@ -300,13 +328,14 @@ export async function bundleJS(
 	});
 }
 
-// Replacements
 export function applyReplacements(
 	content: string,
 	replacements: Replacement[] = [],
 ): string {
 	for (const { from, to } of replacements) {
-		if (!from || to === undefined) continue;
+		if (!from || to === undefined) {
+			continue;
+		}
 		const escaped = from.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 		content = content.replace(new RegExp(escaped, "g"), () => to);
 	}

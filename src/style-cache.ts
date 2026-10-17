@@ -1,5 +1,5 @@
-import fs from "fs";
 import { createHash } from "crypto";
+import fs from "fs";
 
 export type StyleCacheEntry = {
 	text: string;
@@ -17,13 +17,17 @@ export function contentHash(content: string | Buffer): string {
 
 function deleteStyleCacheEntry(key: string): void {
 	const entry = styleCache.get(key);
-	if (entry) styleCacheBytes -= entry.bytes;
+	if (entry) {
+		styleCacheBytes -= entry.bytes;
+	}
 	styleCache.delete(key);
 }
 
 export function getCachedStyle(key: string): string | undefined {
 	const entry = styleCache.get(key);
-	if (!entry) return;
+	if (!entry) {
+		return;
+	}
 	try {
 		for (const dep of entry.dependencies) {
 			if (contentHash(fs.readFileSync(dep.file)) !== dep.hash) {
@@ -53,12 +57,18 @@ export function cacheStyle(
 			(sum, dep) => sum + Buffer.byteLength(dep.file) + dep.hash.length,
 			0,
 		);
-	if (bytes > MAX_STYLE_CACHE_BYTES) return;
+	if (bytes > MAX_STYLE_CACHE_BYTES) {
+		return;
+	}
 	while (
 		styleCache.size >= MAX_STYLE_CACHE_ENTRIES ||
 		styleCacheBytes + bytes > MAX_STYLE_CACHE_BYTES
 	) {
-		deleteStyleCacheEntry(styleCache.keys().next().value!);
+		const oldestKey = styleCache.keys().next().value;
+		if (oldestKey === undefined) {
+			break;
+		}
+		deleteStyleCacheEntry(oldestKey);
 	}
 	styleCache.set(key, { text, bytes, dependencies });
 	styleCacheBytes += bytes;

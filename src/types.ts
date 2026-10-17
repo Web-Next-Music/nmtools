@@ -1,6 +1,6 @@
 import type { Target } from "./targets.js";
-export type { Target } from "./targets.js";
 
+export type { Target } from "./targets.js";
 
 export interface Replacement {
 	from: string;

@@ -8,7 +8,9 @@ export function parseBuildIgnore(raw = ""): string[] {
 }
 
 export function shouldIgnore(diskPath: string, rules: string[]): boolean {
-	if (!rules || rules.length === 0) return false;
+	if (!rules || rules.length === 0) {
+		return false;
+	}
 
 	const matcher = ignore().add(rules);
 	const parts = diskPath
@@ -18,7 +20,9 @@ export function shouldIgnore(diskPath: string, rules: string[]): boolean {
 		.filter(Boolean);
 
 	for (let index = 0; index < parts.length; index++) {
-		if (matcher.ignores(parts.slice(index).join("/"))) return true;
+		if (matcher.ignores(parts.slice(index).join("/"))) {
+			return true;
+		}
 	}
 	return false;
 }

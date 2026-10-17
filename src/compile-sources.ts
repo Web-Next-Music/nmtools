@@ -1,17 +1,17 @@
 import fs from "fs";
 import path from "path";
+import { readBin } from "./bin-format.js";
 import {
-	bundleJS,
-	compileSCSS,
-	minifyCSS,
 	applyReplacements,
 	applyScriptReplacements,
+	bundleJS,
+	compileSCSS,
 	isScriptFile,
 	isTypeDeclaration,
+	minifyCSS,
 } from "./compile.js";
-import { readBin } from "./bin-format.js";
-import { IMAGE_EXTS } from "./utils.js";
 import type { Replacement } from "./types.js";
+import { IMAGE_EXTS } from "./utils.js";
 
 export interface CompileSourcesOptions {
 	files: string[];
@@ -21,6 +21,39 @@ export interface CompileSourcesOptions {
 	logFile?: (action: string, name: string) => void;
 	jsName?: string;
 	cssName?: string;
+}
+
+export interface CompileSourcesResult {
+	js: string;
+	hasJsOutput: boolean;
+	cssChunks: string[];
+	copyFiles: string[];
+}
+
+type SourceKind = "ignored" | "binary" | "script" | "style" | "asset";
+
+function classifySource(file: string, srcDir: string): SourceKind {
+	if (isTypeDeclaration(file)) {
+		return "ignored";
+	}
+	const extension = path.extname(file).toLowerCase();
+	const isRootBrandingImage =
+		path.dirname(path.resolve(file)) === path.resolve(srcDir) &&
+		/^(icon|banner)$/i.test(path.basename(file, extension)) &&
+		IMAGE_EXTS.includes(extension);
+	if (isRootBrandingImage) {
+		return "ignored";
+	}
+	if (extension === ".bin") {
+		return "binary";
+	}
+	if (isScriptFile(file)) {
+		return "script";
+	}
+	if (extension === ".css" || extension === ".scss") {
+		return "style";
+	}
+	return "asset";
 }
 
 // Preserve caller order, while keeping module CSS before source styles and
@@ -33,52 +66,54 @@ export async function compileSources({
 	logFile = () => {},
 	jsName,
 	cssName,
-}: CompileSourcesOptions): Promise<{
-	js: string;
-	hasJsOutput: boolean;
-	cssChunks: string[];
-	copyFiles: string[];
-}> {
+}: CompileSourcesOptions): Promise<CompileSourcesResult> {
 	const policy = { srcDir, allowedFiles: files };
 	const scripts: string[] = [];
 	const cssChunks: string[] = [];
 	const binJs: string[] = [];
 	const copyFiles: string[] = [];
 	for (const file of files) {
-		const ext = path.extname(file).toLowerCase();
+		const extension = path.extname(file).toLowerCase();
 		const relative = path.relative(srcDir, file);
-		if (isTypeDeclaration(file)) continue;
-		if (
-			path.dirname(path.resolve(file)) === path.resolve(srcDir) &&
-			/^(icon|banner)$/i.test(path.basename(file, ext)) &&
-			IMAGE_EXTS.includes(ext)
-		)
-			continue;
-		if (ext === ".bin") {
-			const mod = readBin(file);
-			if (mod.css)
-				cssChunks.unshift(
-					applyReplacements(mod.css, replacements).trim(),
+		switch (classifySource(file, srcDir)) {
+			case "ignored":
+				continue;
+			case "binary": {
+				const module = readBin(file);
+				if (module.css) {
+					cssChunks.unshift(
+						applyReplacements(module.css, replacements).trim(),
+					);
+				}
+				if (module.js) {
+					binJs.push(
+						applyScriptReplacements(module.js, replacements),
+					);
+				}
+				logFile("merge", relative);
+				break;
+			}
+			case "script":
+				scripts.push(file);
+				logFile("minify", relative + (jsName ? " → " + jsName : ""));
+				break;
+			case "style": {
+				const content = applyReplacements(
+					fs.readFileSync(file, "utf8"),
+					replacements,
 				);
-			if (mod.js)
-				binJs.push(applyScriptReplacements(mod.js, replacements));
-			logFile("merge", relative);
-		} else if (isScriptFile(file)) {
-			scripts.push(file);
-			logFile("minify", relative + (jsName ? " → " + jsName : ""));
-		} else if (ext === ".css" || ext === ".scss") {
-			const content = applyReplacements(
-				fs.readFileSync(file, "utf8"),
-				replacements,
-			);
-			cssChunks.push(
-				(ext === ".scss"
-					? await compileSCSS(file, content, policy)
-					: await minifyCSS(file, content)
-				).trim(),
-			);
-			logFile("minify", relative + (cssName ? " → " + cssName : ""));
-		} else copyFiles.push(file);
+				const compiled =
+					extension === ".scss"
+						? await compileSCSS(file, content, policy)
+						: await minifyCSS(file, content);
+				cssChunks.push(compiled.trim());
+				logFile("minify", relative + (cssName ? " → " + cssName : ""));
+				break;
+			}
+			case "asset":
+				copyFiles.push(file);
+				break;
+		}
 	}
 	const js =
 		(scripts.length

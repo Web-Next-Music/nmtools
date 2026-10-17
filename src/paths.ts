@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { applyReplacements } from "./compile.js";
-import { TARGET_METADATA, isTarget } from "./targets.js";
+import { isTarget, TARGET_METADATA } from "./targets.js";
 
 export function safeOutputPath(outDir: string, relative: string): string {
 	const normalized = relative.replace(/\\/g, "/");
@@ -11,12 +11,14 @@ export function safeOutputPath(outDir: string, relative: string): string {
 		/^[a-z]:/i.test(normalized) ||
 		normalized.split("/").includes("..") ||
 		normalized.includes("\0")
-	)
+	) {
 		throw new Error(`Unsafe output path: ${relative}`);
+	}
 	const root = path.resolve(outDir);
 	const dest = path.resolve(root, normalized);
-	if (dest === root || !dest.startsWith(root + path.sep))
+	if (dest === root || !dest.startsWith(root + path.sep)) {
 		throw new Error(`Unsafe output path: ${relative}`);
+	}
 	// Existing symlinks must not redirect writes outside the output tree.
 	let current = dest;
 	while (true) {
@@ -24,11 +26,16 @@ export function safeOutputPath(outDir: string, relative: string): string {
 		try {
 			stat = fs.lstatSync(current);
 		} catch (error) {
-			if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+			if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+				throw error;
+			}
 		}
-		if (stat?.isSymbolicLink())
+		if (stat?.isSymbolicLink()) {
 			throw new Error(`Symlink in output path: ${current}`);
-		if (current === root) break;
+		}
+		if (current === root) {
+			break;
+		}
 		current = path.dirname(current);
 	}
 	return dest;
@@ -46,20 +53,24 @@ export class OutputRegistry {
 			let parent = path.dirname(dest);
 			parent !== root;
 			parent = path.dirname(parent)
-		)
+		) {
 			owner ??= this.destinations.get(parent);
-		if (owner !== undefined)
+		}
+		if (owner !== undefined) {
 			throw new Error(
 				`Output collision: ${source} and ${owner} → ${relative}`,
 			);
+		}
 		this.destinations.set(dest, source);
 		for (
 			let parent = path.dirname(dest);
 			parent !== root;
 			parent = path.dirname(parent)
-		)
-			if (!this.directories.has(parent))
+		) {
+			if (!this.directories.has(parent)) {
 				this.directories.set(parent, source);
+			}
+		}
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
 		return dest;
 	}
@@ -116,10 +127,11 @@ export function addonFolderName(name: string, version: string): string {
 	const safeName = name.replace(/\s+/g, "-");
 	for (const component of [safeName, version]) {
 		validateRelativeArtifact(component);
-		if (component.includes("/"))
+		if (component.includes("/")) {
 			throw new Error(
 				`Unsafe addon folder component: ${JSON.stringify(component)}`,
 			);
+		}
 	}
 	return safeName + "_" + version;
 }

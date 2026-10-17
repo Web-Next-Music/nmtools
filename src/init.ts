@@ -1,9 +1,8 @@
 import fs from "fs";
 import path from "path";
+import config from "../package.json" with { type: "json" };
 import * as log from "./logger.js";
 import { syncTypes } from "./types-sync.js";
-import config from "../package.json" with { type: "json" };
-
 
 const DEFAULT_PKG = {
 	name: "my-addon",
@@ -37,10 +36,11 @@ const DEFAULT_PKG = {
 
 export function init(cwd = process.cwd(), force = false): void {
 	const pkgPath = path.join(cwd, "package.json");
-	if (fs.existsSync(pkgPath) && !force)
+	if (fs.existsSync(pkgPath) && !force) {
 		throw new Error(
 			"package.json already exists. Use init --force to replace it explicitly.",
 		);
+	}
 	log.task("init");
 
 	// package.json
@@ -52,7 +52,9 @@ export function init(cwd = process.cwd(), force = false): void {
 
 	function writeIfMissing(name: string, content: string): void {
 		const file = path.join(cwd, name);
-		if (fs.existsSync(file)) return;
+		if (fs.existsSync(file)) {
+			return;
+		}
 		fs.writeFileSync(file, content, "utf8");
 		log.file("write", name);
 	}
@@ -95,8 +97,9 @@ export function init(cwd = process.cwd(), force = false): void {
 		),
 	);
 
-	if (!fs.existsSync(path.join(cwd, "src/script.js")))
+	if (!fs.existsSync(path.join(cwd, "src/script.js"))) {
 		writeIfMissing("src/script.ts", "// shared script\n");
+	}
 
 	writeIfMissing(
 		".buildignore",

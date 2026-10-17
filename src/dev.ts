@@ -1,11 +1,11 @@
+import { type FSWatcher, watch } from "chokidar";
 import fs from "fs";
 import path from "path";
-import { watch, type FSWatcher } from "chokidar";
-import * as log from "./logger.js";
-import { loadConfig } from "./config.js";
 import { buildDevTarget } from "./builder.js";
+import { loadConfig } from "./config.js";
+import * as log from "./logger.js";
 import { prompt } from "./prompt.js";
-import { TARGET_METADATA, isTarget, type Target } from "./targets.js";
+import { isTarget, TARGET_METADATA, type Target } from "./targets.js";
 
 function displayName(target: Target): string {
 	return TARGET_METADATA[target].displayName;
@@ -17,19 +17,21 @@ export async function runDev(cliTarget?: string): Promise<void> {
 	const available = config._targets.filter(
 		(target) => TARGET_METADATA[target].dev,
 	);
-	if (!available.length)
+	if (!available.length) {
 		throw new Error(
 			'No dev-compatible targets found. Add "nextmusic" or "bin" to build.targets.',
 		);
+	}
 	const target =
 		cliTarget?.toLowerCase() ??
 		(available.length === 1
 			? available[0]
 			: await prompt("Select build target:", available, displayName));
-	if (!isTarget(target) || !available.includes(target))
+	if (!isTarget(target) || !available.includes(target)) {
 		throw new Error(
 			`Dev target "${target}" is not enabled. Available: ${available.join(", ")}`,
 		);
+	}
 
 	log.header("nmtools", config._version);
 	process.stdout.write(
@@ -49,9 +51,13 @@ export async function runDev(cliTarget?: string): Promise<void> {
 	}
 
 	function requestBuild(): void {
-		if (stopped) return;
+		if (stopped) {
+			return;
+		}
 		pending = true;
-		if (timer) clearTimeout(timer);
+		if (timer) {
+			clearTimeout(timer);
+		}
 		timer = setTimeout(() => {
 			timer = undefined;
 			void drain();
@@ -70,8 +76,12 @@ export async function runDev(cliTarget?: string): Promise<void> {
 				ignoreInitial: true,
 				ignored: (watchedPath) => {
 					const relative = path.relative(srcDir, watchedPath);
-					if (relative.startsWith("..") || path.isAbsolute(relative))
+					if (
+						relative.startsWith("..") ||
+						path.isAbsolute(relative)
+					) {
 						return false;
+					}
 					const parts = relative.split(path.sep);
 					return (
 						parts.includes("node_modules") ||
@@ -90,10 +100,11 @@ export async function runDev(cliTarget?: string): Promise<void> {
 
 	async function compile(): Promise<void> {
 		const next = loadConfig(cwd);
-		if (!next._targets.includes(target))
+		if (!next._targets.includes(target)) {
 			throw new Error(
 				`Dev target "${target}" was removed from build.targets`,
 			);
+		}
 		config = next;
 		await refreshWatcher();
 		process.stdout.write("  compiling...");
@@ -110,7 +121,9 @@ export async function runDev(cliTarget?: string): Promise<void> {
 	}
 
 	async function drain(): Promise<void> {
-		if (building || stopped) return;
+		if (building || stopped) {
+			return;
+		}
 		building = true;
 		try {
 			while (pending && !stopped) {
@@ -120,11 +133,15 @@ export async function runDev(cliTarget?: string): Promise<void> {
 				} catch (error) {
 					log.error(`Build failed: ${(error as Error).message}`);
 				}
-				if (timer) break;
+				if (timer) {
+					break;
+				}
 			}
 		} finally {
 			building = false;
-			if (pending && !timer && !stopped) void drain();
+			if (pending && !timer && !stopped) {
+				void drain();
+			}
 		}
 	}
 
@@ -133,18 +150,24 @@ export async function runDev(cliTarget?: string): Promise<void> {
 		await compile();
 	} catch (error) {
 		stopped = true;
-		if (timer) clearTimeout(timer);
+		if (timer) {
+			clearTimeout(timer);
+		}
 		await closeWatcher();
 		throw error;
 	} finally {
 		building = false;
 	}
-	if (pending && !timer) void drain();
+	if (pending && !timer) {
+		void drain();
+	}
 
 	await new Promise<void>((resolve) => {
 		function stop(): void {
 			stopped = true;
-			if (timer) clearTimeout(timer);
+			if (timer) {
+				clearTimeout(timer);
+			}
 			void closeWatcher().then(resolve);
 			process.removeListener("SIGINT", stop);
 			process.removeListener("SIGTERM", stop);

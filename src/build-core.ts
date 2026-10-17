@@ -1,18 +1,17 @@
 import fs from "fs";
 import path from "path";
-import * as log from "./logger.js";
-import { ensureDir, IMAGE_EXTS, removeEmptyAssetsDir } from "./utils.js";
+import { generateEnvReplacements } from "./env.js";
 import { parseBuildIgnore, shouldIgnore } from "./ignore.js";
+import * as log from "./logger.js";
 import {
+	bundleToDir,
+	copyAssetsToOut,
 	createSourceIndex,
 	OutputRegistry,
-	copyAssetsToOut,
-	bundleToDir,
 } from "./src-resolver.js";
-import { generateEnvReplacements } from "./env.js";
 import type { Config } from "./types.js";
+import { ensureDir, IMAGE_EXTS, removeEmptyAssetsDir } from "./utils.js";
 
-// Public API
 export interface BuildOptions {
 	targetFolder: string;
 	outDir: string;
@@ -42,7 +41,7 @@ export async function buildToDir(
 
 	const logFile: (action: string, name: string) => void = silent
 		? noop
-		: (a, n) => log.file(a, n);
+		: (action, name) => log.file(action, name);
 	const logWarn: (msg: string) => void = silent ? noop : log.warn;
 
 	const index = createSourceIndex(srcDir, ignoreRules);
@@ -67,18 +66,17 @@ export async function buildToDir(
 			const destination = name + path.extname(file);
 			fs.copyFileSync(file, outputs.claim(destination, file));
 			logFile("copy", destination);
-		} else if (name === "icon")
+		} else if (name === "icon") {
 			logWarn("No icon image found in assets/branding/ or src/");
+		}
 	}
 
-	// Theme manifest
 	if (opts.copyPackage) {
 		const packageSrc = path.join(config._cwd, "package.json");
 		fs.copyFileSync(packageSrc, outputs.claim("package.json", packageSrc));
 		logFile("copy", "package.json");
 	}
 
-	// LICENSE
 	if (opts.copyLicense) {
 		const licenseSrc = path.join(config._cwd, "LICENSE");
 		if (
@@ -92,11 +90,11 @@ export async function buildToDir(
 		}
 	}
 
-	// Assets
 	copyAssetsToOut(srcDir, opts.outDir, ignoreRules, index, outputs);
-	if (index.assets.length > 0) logFile("copy", "assets/");
+	if (index.assets.length > 0) {
+		logFile("copy", "assets/");
+	}
 
-	// Bundle JS/CSS
 	await bundleToDir({
 		allFiles,
 		srcDir,
@@ -108,6 +106,5 @@ export async function buildToDir(
 		outputs,
 	});
 
-	// Cleanup
 	removeEmptyAssetsDir(opts.outDir);
 }

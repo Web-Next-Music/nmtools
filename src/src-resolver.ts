@@ -1,10 +1,12 @@
 import fs from "fs";
 import path from "path";
-import { safeOutputPath, OutputRegistry } from "./paths.js";
-export { safeOutputPath, OutputRegistry } from "./paths.js";
-import { TARGET_METADATA } from "./targets.js";
-import { shouldIgnore } from "./ignore.js";
+import { OutputRegistry, safeOutputPath } from "./paths.js";
+
+export { OutputRegistry, safeOutputPath } from "./paths.js";
+
 import { compileSources } from "./compile-sources.js";
+import { shouldIgnore } from "./ignore.js";
+import { TARGET_METADATA } from "./targets.js";
 import type { Replacement } from "./types.js";
 
 export const TARGET_FOLDERS = new Set<string>(
@@ -39,25 +41,35 @@ export function createSourceIndex(
 		targetDirs: [],
 	};
 	function walk(dir: string, scope = "shared", assetRoot = ""): void {
-		if (!fs.existsSync(dir)) return;
+		if (!fs.existsSync(dir)) {
+			return;
+		}
 		for (const entry of fs
 			.readdirSync(dir, { withFileTypes: true })
-			.sort((a, b) => a.name.localeCompare(b.name))) {
+			.sort((left, right) => left.name.localeCompare(right.name))) {
 			const full = path.join(dir, entry.name);
-			if (shouldIgnore(full, ignoreRules)) continue;
+			if (shouldIgnore(full, ignoreRules)) {
+				continue;
+			}
 			if (entry.isDirectory()) {
-				if (IGNORED_DIRS.has(entry.name)) continue;
+				if (IGNORED_DIRS.has(entry.name)) {
+					continue;
+				}
 				if (scope === "assets") {
 					walk(full, scope, assetRoot);
 					continue;
 				}
 				if (TARGET_FOLDERS.has(entry.name)) {
 					index.targetDirs.push(full);
-					if (scope === "shared") walk(full, entry.name);
+					if (scope === "shared") {
+						walk(full, entry.name);
+					}
 					continue;
 				}
 				if (entry.name === "assets") {
-					if (scope === "shared") walk(full, "assets", full);
+					if (scope === "shared") {
+						walk(full, "assets", full);
+					}
 					continue;
 				}
 				walk(full, scope, assetRoot);
@@ -65,8 +77,11 @@ export function createSourceIndex(
 				if (scope === "assets") {
 					index.assets.push(full);
 					index.assetPaths.set(full, path.relative(assetRoot, full));
-				} else if (scope === "shared") index.shared.push(full);
-				else index.targets[scope].push(full);
+				} else if (scope === "shared") {
+					index.shared.push(full);
+				} else {
+					index.targets[scope].push(full);
+				}
 			}
 		}
 	}
@@ -82,14 +97,17 @@ export function copyAssetsToOut(
 	outputs = new OutputRegistry(outDir),
 ): void {
 	for (const file of index.assets) {
-		const relative = index.assetPaths.get(file)!;
-		if (relative.replace(/\\/g, "/").startsWith("branding/")) continue;
+		const relative = index.assetPaths.get(file);
+		if (relative === undefined) {
+			throw new Error(`Missing indexed asset path: ${file}`);
+		}
+		if (relative.replace(/\\/g, "/").startsWith("branding/")) {
+			continue;
+		}
 		fs.copyFileSync(file, outputs.claim("assets/" + relative, file));
 	}
 }
 
-
-// Bundler
 export interface BundleToDirOptions {
 	allFiles: string[];
 	srcDir: string;
@@ -114,7 +132,7 @@ export async function bundleToDir({
 	logFile,
 	isDev = false,
 	outputs = new OutputRegistry(outDir),
-	}: BundleToDirOptions): Promise<void> {
+}: BundleToDirOptions): Promise<void> {
 	const { js, hasJsOutput, cssChunks, copyFiles } = await compileSources({
 		files: allFiles,
 		srcDir,
@@ -143,7 +161,6 @@ export async function bundleToDir({
 	}
 }
 
-// Helpers
 export function relativeOutputPath(
 	filePath: string,
 	srcDir: string,
@@ -156,7 +173,8 @@ export function relativeOutputPath(
 	safeOutputPath(srcDir, relative);
 	const parts = relative.split(path.sep);
 	const targetIndex = parts.indexOf(targetFolder);
-	if (TARGET_FOLDERS.has(targetFolder) && targetIndex !== -1)
+	if (TARGET_FOLDERS.has(targetFolder) && targetIndex !== -1) {
 		parts.splice(targetIndex, 1);
+	}
 	return parts.join(path.sep);
 }

@@ -1,11 +1,12 @@
 import { cac } from "cac";
-import { loadConfig } from "./config.js";
+import { createRequire } from "module";
 import { buildAll, buildPackage } from "./builder.js";
+import { loadConfig } from "./config.js";
 import { runDev } from "./dev.js";
 import { init } from "./init.js";
-import { runTypes } from "./types-sync.js";
 import * as log from "./logger.js";
-import { createRequire } from "module";
+import type { Config } from "./types.js";
+import { runTypes } from "./types-sync.js";
 
 const _require = createRequire(import.meta.url);
 const { version } = _require("../package.json") as { version: string };
@@ -58,7 +59,9 @@ export async function run(args: string[]): Promise<void> {
 		async (target?: string) => {
 			await runDev(target).catch((error: Error) => {
 				log.error(`Dev failed: ${error.message}`);
-				if (process.env.DEBUG) console.error(error.stack);
+				if (process.env.DEBUG) {
+					console.error(error.stack);
+				}
 				process.exit(1);
 			});
 		},
@@ -67,7 +70,7 @@ export async function run(args: string[]): Promise<void> {
 	cli.command("build [...targets]", "Build nextmusic, web or bin").action(
 		async (targets: string[]) => {
 			log.header("nmtools", version);
-			let config;
+			let config: Config;
 			try {
 				config = loadConfig();
 			} catch (error) {
@@ -76,13 +79,18 @@ export async function run(args: string[]): Promise<void> {
 			}
 
 			try {
-				if (targets.length === 0) await buildAll(config);
-				else
-					for (const target of targets)
+				if (targets.length === 0) {
+					await buildAll(config);
+				} else {
+					for (const target of targets) {
 						await buildPackage(config, target);
+					}
+				}
 			} catch (error) {
 				log.error(`Build failed: ${(error as Error).message}`);
-				if (process.env.DEBUG) console.error((error as Error).stack);
+				if (process.env.DEBUG) {
+					console.error((error as Error).stack);
+				}
 				process.exit(1);
 			}
 		},
@@ -99,10 +107,13 @@ export async function run(args: string[]): Promise<void> {
 		await cli.runMatchedCommand();
 	} catch (error) {
 		const message = (error as Error).message;
-		if (message.startsWith("Unknown command:")) log.error(message);
-		else if (args[0] === "init")
+		if (message.startsWith("Unknown command:")) {
+			log.error(message);
+		} else if (args[0] === "init") {
 			log.error("Init failed: Usage: nmtools init [--force]");
-		else log.error(message);
+		} else {
+			log.error(message);
+		}
 		process.exit(1);
 	}
 }

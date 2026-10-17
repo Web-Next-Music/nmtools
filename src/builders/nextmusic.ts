@@ -1,18 +1,17 @@
 import fs from "fs";
 import path from "path";
+import { createTarGz } from "../archive.js";
+import { buildToDir } from "../build-core.js";
 import * as log from "../logger.js";
-import { fileSize } from "../utils.js";
 import {
-	resolveArtifactName,
 	addonFolderName,
+	resolveArtifactName,
 	safeOutputPath,
 } from "../paths.js";
 import { TARGET_METADATA } from "../targets.js";
-import { createTarGz } from "../archive.js";
-import { buildToDir } from "../build-core.js";
 import type { Config } from "../types.js";
+import { fileSize } from "../utils.js";
 
-// Production build
 export async function buildNextMusic(config: Config): Promise<void> {
 	const cwd = config._cwd;
 	const name = config.addonName;
@@ -53,14 +52,14 @@ export async function buildNextMusic(config: Config): Promise<void> {
 	}
 }
 
-// Dev build
 export async function buildNextMusicDev(config: Config): Promise<void> {
 	const outDir = safeOutputPath(
 		path.join(config._cwd, "dist"),
 		config.addonName,
 	);
-	if (fs.existsSync(outDir))
+	if (fs.existsSync(outDir)) {
 		fs.rmSync(outDir, { recursive: true, force: true });
+	}
 	await buildToDir(config, {
 		targetFolder: TARGET_METADATA.nextmusic.sourceFolder,
 		outDir,
