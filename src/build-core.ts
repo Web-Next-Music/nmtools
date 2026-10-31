@@ -51,7 +51,6 @@ export async function buildToDir(
 		...index.shared,
 	];
 	ensureDir(opts.outDir);
-	const brandingDir = path.join(srcDir, "assets", "branding");
 	const findImageFile = (dir: string, name: string): string | undefined =>
 		[...index.assets, ...index.shared].find(
 			(file) =>
@@ -61,13 +60,21 @@ export async function buildToDir(
 		);
 	for (const name of ["icon", "banner"]) {
 		const file =
-			findImageFile(brandingDir, name) ?? findImageFile(srcDir, name);
+			index.assets.find((file) => {
+				const relative = index.assetPaths.get(file);
+				return (
+					relative !== undefined &&
+					/^_branding$/i.test(path.dirname(relative)) &&
+					path.basename(file, path.extname(file)) === name &&
+					IMAGE_EXTS.includes(path.extname(file).toLowerCase())
+				);
+			}) ?? findImageFile(srcDir, name);
 		if (file) {
 			const destination = name + path.extname(file);
 			fs.copyFileSync(file, outputs.claim(destination, file));
 			logFile("copy", destination);
 		} else if (name === "icon") {
-			logWarn("No icon image found in assets/branding/ or src/");
+			logWarn("No icon image found in assets/_branding/ or src/");
 		}
 	}
 

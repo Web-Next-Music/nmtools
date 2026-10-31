@@ -101,7 +101,7 @@ export function copyAssetsToOut(
 		if (relative === undefined) {
 			throw new Error(`Missing indexed asset path: ${file}`);
 		}
-		if (relative.replace(/\\/g, "/").startsWith("branding/")) {
+		if (/^_branding\//i.test(relative.replace(/\\/g, "/"))) {
 			continue;
 		}
 		fs.copyFileSync(file, outputs.claim("assets/" + relative, file));

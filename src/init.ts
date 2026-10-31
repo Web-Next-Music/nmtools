@@ -62,7 +62,7 @@ export function init(cwd = process.cwd(), force = false): void {
 	for (const dir of [
 		"src",
 		"src/assets",
-		"src/assets/branding",
+		"src/assets/_branding",
 		"src/nm",
 		"src/web",
 	]) {
